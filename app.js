@@ -1,0 +1,798 @@
+/* KanjiLite – a small, unofficial WaniKani client. No build step, no dependencies. */
+(function () {
+  'use strict';
+
+  // ---------- helpers ----------
+  const $ = (s, r = document) => r.querySelector(s);
+  const app = $('#app');
+  const dlg = $('#modal');
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const rand = (a) => a[Math.floor(Math.random() * a.length)];
+  const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+  const getNum = (k, d) => { const v = localStorage.getItem(k); return v === null ? d : Number(v); };
+  const settings = {
+    get lessonBatch() { return getNum('kl_lesson_batch', 5); },
+    get sessionSize() { return getNum('kl_session_size', 100); }, // 0 = everything
+    get backToBack() { return localStorage.getItem('kl_b2b') === '1'; },
+    get firstQ() { return localStorage.getItem('kl_first') || 'random'; }, // random | meaning | reading
+    get showLevel() { return localStorage.getItem('kl_show_level') !== '0'; },
+  };
+
+  // Unfinished review session, saved after every answer so you can leave and come back.
+  const Session = {
+    key: 'kl_session',
+    load() {
+      try { const x = JSON.parse(localStorage.getItem(this.key)); return x && x.v === 1 && Array.isArray(x.items) && x.items.length ? x : null; } catch (e) { return null; }
+    },
+    save(x) { try { localStorage.setItem(this.key, JSON.stringify(x)); } catch (e) { /* storage full or blocked */ } },
+    clear() { localStorage.removeItem(this.key); },
+  };
+  const LESSON_CAP = 100;
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 3800);
+  }
+
+  const loading = (msg) => { app.innerHTML = `<div class="wrap center"><div class="spinner"></div><p class="muted">${esc(msg || 'Loading…')}</p></div>`; };
+  const empty = (title, text) => { app.innerHTML = `<div class="wrap center"><h1>${esc(title)}</h1><p class="muted">${esc(text)}</p><a class="btn" href="#/">Back home</a></div>`; };
+
+  function go(hash) {
+    if (location.hash === hash) route(); else location.hash = hash;
+  }
+
+  // ---------- subject helpers ----------
+  const typeClass = (t) => (t === 'kana_vocabulary' ? 'vocabulary' : t);
+  const TYPE_LABEL = { radical: 'Radical', kanji: 'Kanji', vocabulary: 'Vocabulary', kana_vocabulary: 'Vocabulary' };
+  const TYPE_ORDER = { radical: 0, kanji: 1, vocabulary: 2, kana_vocabulary: 3 };
+  const STAGES = ['Lesson', 'Apprentice 1', 'Apprentice 2', 'Apprentice 3', 'Apprentice 4', 'Guru 1', 'Guru 2', 'Master', 'Enlightened', 'Burned'];
+  const stageGroup = (n) => (n <= 0 ? 'lesson' : n <= 4 ? 'apprentice' : n <= 6 ? 'guru' : n === 7 ? 'master' : n === 8 ? 'enlightened' : 'burned');
+
+  function glyph(s) {
+    const d = s.data;
+    if (d.characters) return esc(d.characters);
+    const imgs = d.character_images || [];
+    const pick = imgs.find((i) => i.content_type === 'image/svg+xml' && i.metadata && i.metadata.inline_styles)
+      || imgs.find((i) => i.content_type === 'image/png') || imgs[0];
+    return pick ? `<img src="${esc(pick.url)}" alt="${esc(d.slug)}">` : esc(d.slug);
+  }
+  const glyphClass = (s) => ((s.data.characters || '').length > 4 ? 'long' : '');
+  const primaryMeaning = (s) => ((s.data.meanings.find((m) => m.primary) || s.data.meanings[0] || {}).meaning) || '';
+  const primaryReading = (s) => { const r = (s.data.readings || []).find((x) => x.primary); return r ? r.reading : ''; };
+
+  // Mnemonics use pseudo tags like <radical>…</radical>; escape everything, then re-enable those.
+  function mnem(text) {
+    return esc(text || '')
+      .replace(/&lt;(\/?)(radical|kanji|vocabulary|meaning|reading|ja)&gt;/g, (m, slash, tag) => (slash ? '</span>' : `<span class="tag tag-${tag}">`))
+      .replace(/\n/g, '<br>');
+  }
+
+  function tile(s, assignment) {
+    const locked = assignment === null || (assignment && !assignment.data.unlocked_at);
+    const stage = assignment && assignment.data.srs_stage > 0 ? stageGroup(assignment.data.srs_stage) : '';
+    const title = locked ? 'Locked' : assignment ? STAGES[assignment.data.srs_stage] : '';
+    const reading = primaryReading(s);
+    return `<button type="button" class="tile t-${typeClass(s.object)}${locked ? ' locked' : ''}" data-subject="${s.id}" title="${esc(title)}">
+      <span class="tg">${glyph(s)}</span>
+      <span class="tm">${esc(primaryMeaning(s))}</span>
+      ${reading ? `<span class="tr">${esc(reading)}</span>` : ''}
+      ${stage ? `<span class="stage stage-${stage}"></span>` : ''}
+    </button>`;
+  }
+
+  function hero(s) {
+    const d = s.data;
+    return `<div class="hero t-${typeClass(s.object)}">
+      <div class="hglyph">${glyph(s)}</div>
+      <div class="hname">${esc(primaryMeaning(s))}</div>
+      <div class="hsub">${TYPE_LABEL[s.object]}, level ${d.level}</div>
+    </div>`;
+  }
+
+  /** Meanings, readings, mnemonics, sentences and relations for one subject. */
+  function renderInfo(s, related, opts) {
+    const d = s.data;
+    const showUsedIn = !opts || opts.usedIn !== false;
+    let h = '';
+
+    const primary = d.meanings.filter((m) => m.primary).map((m) => m.meaning);
+    const alts = d.meanings.filter((m) => !m.primary && m.accepted_answer).map((m) => m.meaning);
+    h += `<section><h3>Meaning</h3><p class="big">${esc(primary.join(', '))}</p>`;
+    if (alts.length) h += `<p class="muted">Also accepted: ${esc(alts.join(', '))}</p>`;
+    if (d.meaning_mnemonic) h += `<p>${mnem(d.meaning_mnemonic)}</p>`;
+    if (d.meaning_hint) h += `<p class="hint">${mnem(d.meaning_hint)}</p>`;
+    h += '</section>';
+
+    const readings = d.readings || [];
+    if (readings.length) {
+      h += '<section><h3>Reading</h3>';
+      if (s.object === 'kanji') {
+        const labels = { onyomi: 'On’yomi', kunyomi: 'Kun’yomi', nanori: 'Nanori' };
+        h += '<dl class="kv">';
+        ['onyomi', 'kunyomi', 'nanori'].forEach((t) => {
+          const rs = readings.filter((r) => r.type === t);
+          if (!rs.length) return;
+          const cls = rs.some((r) => r.accepted_answer) ? '' : ' class="muted"';
+          h += `<dt${cls}>${labels[t]}</dt><dd${cls}>${esc(rs.map((r) => r.reading).join('、'))}</dd>`;
+        });
+        h += '</dl>';
+      } else {
+        h += `<p class="big" style="font-family:var(--mincho)">${esc(readings.map((r) => r.reading).join('、'))}</p>`;
+      }
+      if (d.reading_mnemonic) h += `<p>${mnem(d.reading_mnemonic)}</p>`;
+      if (d.reading_hint) h += `<p class="hint">${mnem(d.reading_hint)}</p>`;
+      h += '</section>';
+    }
+
+    if (d.parts_of_speech && d.parts_of_speech.length) {
+      h += `<section><h3>Part of speech</h3><p>${esc(d.parts_of_speech.join(', ').replace(/_/g, ' '))}</p></section>`;
+    }
+
+    if (d.context_sentences && d.context_sentences.length) {
+      h += '<section class="sentences"><h3>Example sentences</h3>';
+      d.context_sentences.slice(0, 3).forEach((c) => { h += `<p class="ja">${esc(c.ja)}</p><p class="muted">${esc(c.en)}</p>`; });
+      h += '</section>';
+    }
+
+    if (related) {
+      const parts = (d.component_subject_ids || []).map((id) => related.get(id)).filter(Boolean);
+      if (parts.length) {
+        const title = s.object === 'vocabulary' ? 'Kanji in this word' : 'Made of these radicals';
+        h += `<section><h3>${title}</h3><div class="tiles">${parts.map((p) => tile(p)).join('')}</div></section>`;
+      }
+      if (showUsedIn) {
+        const used = (d.amalgamation_subject_ids || []).slice(0, 30).map((id) => related.get(id)).filter(Boolean);
+        if (used.length) {
+          const title = s.object === 'radical' ? 'Found in kanji' : 'Found in vocabulary';
+          h += `<section><h3>${title}</h3><div class="tiles">${used.map((p) => tile(p)).join('')}</div></section>`;
+        }
+      }
+    }
+
+    if (d.document_url) h += `<p class="muted"><a href="${esc(d.document_url)}" target="_blank" rel="noopener">Open on WaniKani</a></p>`;
+    return h;
+  }
+
+  // ---------- modal ----------
+  function openModal(html) {
+    $('#modal-body').innerHTML = html;
+    if (!dlg.open) dlg.showModal();
+    dlg.scrollTop = 0;
+  }
+  dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest('[data-close]')) dlg.close(); });
+
+  async function openSubject(id) {
+    openModal('<div class="spinner"></div>');
+    try {
+      const s = (await api.getSubjects([id])).get(id);
+      if (!s) throw new Error('Subject not found');
+      const relIds = [].concat(s.data.component_subject_ids || [], (s.data.amalgamation_subject_ids || []).slice(0, 30));
+      const related = await api.getSubjects(relIds);
+      openModal(hero(s) + `<div class="info-body">${renderInfo(s, related)}</div>`);
+    } catch (e) {
+      openModal(`<p class="error">${esc(e.message)}</p>`);
+    }
+  }
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-subject]');
+    if (t) openSubject(Number(t.dataset.subject));
+  });
+
+  // ---------- settings ----------
+  const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v))));
+  function saveSessionSize(v) {
+    if (v === '' || isNaN(Number(v))) return false;
+    localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
+    return true;
+  }
+
+  function openSettings() {
+    const opt = (v, label, cur) => `<option value="${v}"${String(cur) === String(v) ? ' selected' : ''}>${label}</option>`;
+    openModal(`<h2>Settings</h2>
+      <h3 class="sethead">Reviews</h3>
+      <div class="field"><label for="s-size">Reviews per session</label>
+        <input id="s-size" class="num" type="number" min="0" max="5000" inputmode="numeric" value="${settings.sessionSize}">
+        <span class="muted">Any number you like. 0 means everything that’s due.</span></div>
+      <label class="check"><input type="checkbox" id="s-b2b"${settings.backToBack ? ' checked' : ''}> Ask an item’s reading and meaning back to back</label>
+      <div class="field"><label for="s-first">Question asked first</label>
+        <select id="s-first">${opt('random', 'Random', settings.firstQ)}${opt('meaning', 'Meaning', settings.firstQ)}${opt('reading', 'Reading', settings.firstQ)}</select></div>
+      <label class="check"><input type="checkbox" id="s-level"${settings.showLevel ? ' checked' : ''}> Show the item’s level on review cards</label>
+      <h3 class="sethead">Lessons</h3>
+      <div class="field"><label for="s-batch">Lessons per batch</label>
+        <select id="s-batch">${[3, 5, 7, 10].map((n) => opt(n, n, settings.lessonBatch)).join('')}</select></div>
+      <div class="row between" style="margin-top:22px">
+        <button class="btn ghost" id="s-logout" type="button">Log out</button>
+        <button class="btn" data-close type="button">Done</button>
+      </div>`);
+    $('#s-size').onchange = (e) => { if (saveSessionSize(e.target.value)) e.target.value = settings.sessionSize; };
+    $('#s-b2b').onchange = (e) => localStorage.setItem('kl_b2b', e.target.checked ? '1' : '0');
+    $('#s-first').onchange = (e) => localStorage.setItem('kl_first', e.target.value);
+    $('#s-level').onchange = (e) => localStorage.setItem('kl_show_level', e.target.checked ? '1' : '0');
+    $('#s-batch').onchange = (e) => localStorage.setItem('kl_lesson_batch', e.target.value);
+    $('#s-logout').onclick = () => {
+      const left = api.pending().length;
+      const msg = left ? `You have ${left} finished review(s) that haven't been sent to WaniKani yet. Logging out will discard them. Log out anyway?` : 'Log out and remove your token from this browser?';
+      if (!confirm(msg)) return;
+      api.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
+    };
+  }
+  $('#open-settings').addEventListener('click', openSettings);
+
+  // ---------- routing ----------
+  let routeSeq = 0;
+  let cleanup = null;
+  let userCache = null;
+
+  async function getUser(force) {
+    if (!userCache || force || Date.now() - userCache.t > 60000) {
+      userCache = { t: Date.now(), u: (await api.request('/user')).data };
+    }
+    return userCache.u;
+  }
+
+  function route() {
+    const my = ++routeSeq;
+    if (cleanup) { cleanup(); cleanup = null; }
+    if (dlg.open) dlg.close();
+    window.scrollTo(0, 0);
+    const parts = location.hash.replace(/^#\/?/, '').split('/');
+    const name = parts[0] || 'home';
+    $('#nav').hidden = !api.token;
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', (a.dataset.nav || 'home') === name));
+    if (!api.token) return loginView();
+    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView };
+    (views[name] || homeView)(my, parts[1]).catch((err) => fail(err, my));
+  }
+  window.addEventListener('hashchange', route);
+
+  function fail(err, my) {
+    if (my !== routeSeq) return;
+    if (err && err.status === 401) { api.token = ''; userCache = null; return loginView(err.message); }
+    app.innerHTML = `<div class="wrap center"><h1>Something went wrong</h1><p class="error">${esc(err && err.message ? err.message : err)}</p>
+      <div class="row" style="justify-content:center"><button class="btn" id="retry">Try again</button><a class="btn ghost" href="#/">Home</a></div></div>`;
+    $('#retry').onclick = route;
+  }
+
+  // ---------- login ----------
+  function loginView(msg) {
+    $('#nav').hidden = true;
+    app.innerHTML = `<div class="wrap login">
+      <h1>鰐 KanjiLite</h1>
+      <p>A small, unofficial client for your WaniKani account: lessons, reviews and a level browser.</p>
+      <form id="login-form">
+        <label for="tok">WaniKani API token</label>
+        <input id="tok" type="password" autocomplete="off" spellcheck="false" required>
+        <button class="btn" style="margin-top:14px" type="submit">Connect</button>
+        <div class="error" id="login-err">${esc(msg || '')}</div>
+      </form>
+      <p class="fine">Create a token under <a href="https://www.wanikani.com/settings/personal_access_tokens" target="_blank" rel="noopener">Settings, Personal Access Tokens</a> on WaniKani. Tick <b>assignments:start</b> and <b>reviews:create</b> so your lessons and reviews are saved. The token stays in this browser and is only sent to api.wanikani.com.</p>
+    </div>`;
+    $('#login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      api.token = $('#tok').value.trim();
+      try {
+        await getUser(true);
+        go('#/');
+      } catch (err) {
+        api.token = '';
+        $('#login-err').textContent = err.message;
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ---------- home ----------
+  async function homeView(my) {
+    const stale = () => my !== routeSeq;
+    loading();
+    const [user, summary] = await Promise.all([getUser(true), api.request('/summary')]);
+    if (stale()) return;
+
+    const now = Date.now();
+    const sd = summary.data;
+    const countNow = (list) => list.filter((x) => new Date(x.available_at) <= now).reduce((n, x) => n + x.subject_ids.length, 0);
+    const lessons = countNow(sd.lessons);
+    const reviews = countNow(sd.reviews);
+    const upcoming = sd.reviews.filter((x) => new Date(x.available_at) > now && x.subject_ids.length).slice(0, 8);
+    const maxUp = Math.max(1, ...upcoming.map((x) => x.subject_ids.length));
+    const pending = api.pending().length;
+    const snap = Session.load();
+    const hourLabel = (iso) => {
+      const d = new Date(iso);
+      const sameDay = d.toDateString() === new Date().toDateString();
+      return d.toLocaleString([], sameDay ? { hour: 'numeric' } : { weekday: 'short', hour: 'numeric' });
+    };
+
+    app.innerHTML = `<div class="wrap">
+      <div class="greet"><h1>Hello, ${esc(user.username)}</h1><p class="muted">Level ${user.level}</p></div>
+      ${pending ? `<div class="banner"><b>${pending} finished review${pending > 1 ? 's' : ''}</b> couldn’t be sent to WaniKani yet. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
+      ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
+      <div class="todo">
+        <a class="reviews${reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${reviews}</span></a>
+        <a class="lessons${lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${lessons}</span></a>
+      </div>
+      <div id="lvl-progress"></div>
+      <div class="panel session-panel">
+        <label for="h-size"><b>Reviews per session</b></label>
+        <input id="h-size" class="num" type="number" min="0" max="5000" inputmode="numeric" value="${settings.sessionSize}">
+        <span class="muted">0 means everything that’s due. More options are in Settings.</span>
+      </div>
+      <div class="panel">
+        <h2>Coming up</h2>
+        ${upcoming.length ? `<div class="forecast">${upcoming.map((x) => `<div><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.subject_ids.length / maxUp * 100))}%"></span></span><span class="n">${x.subject_ids.length}</span></div>`).join('')}</div>`
+          : `<p class="muted">${sd.next_reviews_at ? 'Next reviews: ' + esc(new Date(sd.next_reviews_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
+      </div>
+    </div>`;
+
+    $('#h-size').onchange = (e) => {
+      if (saveSessionSize(e.target.value)) toast('Session length saved.');
+      e.target.value = settings.sessionSize;
+    };
+    const discard = $('#discard-session');
+    if (discard) discard.onclick = () => {
+      if (confirm('Discard the unfinished session? Items you already finished are safe on WaniKani.')) { Session.clear(); route(); }
+    };
+    const retry = $('#retry-sync');
+    if (retry) retry.onclick = async () => {
+      retry.disabled = true;
+      try { await api.flushPending(); toast('Reviews sent to WaniKani.'); } catch (e) { toast(e.message); }
+      if (!stale()) route();
+    };
+    // Flush quietly in the background if something is waiting.
+    if (pending && !retry.disabled) api.flushPending().then(() => { if (!stale()) route(); }).catch(() => {});
+
+    // Level progress: 90% of the level's kanji at Guru or above unlocks the next level.
+    try {
+      const lvl = user.level;
+      const [kanji, passed] = await Promise.all([
+        api.request(`/subjects?levels=${lvl}&types=kanji`),
+        api.request(`/assignments?levels=${lvl}&subject_types=kanji&srs_stages=5,6,7,8,9`),
+      ]);
+      const el = $('#lvl-progress');
+      if (stale() || !el) return;
+      const total = kanji.total_count, done = passed.total_count;
+      const need = Math.ceil(total * 0.9);
+      el.innerHTML = `<div class="panel"><h2>Level ${lvl} progress</h2>
+        <div class="meter" role="img" aria-label="${done} of ${need} kanji needed"><i style="width:${Math.min(100, Math.round(done / Math.max(total, 1) * 100))}%"></i><b style="left:90%"></b></div>
+        <p class="muted" style="margin:0">${done} of ${total} kanji at Guru or above. You need ${need} to level up.</p></div>`;
+    } catch (e) { /* progress is a nice-to-have */ }
+  }
+
+  // ---------- levels ----------
+  async function levelsView(my, arg) {
+    const stale = () => my !== routeSeq;
+    loading('Loading level…');
+    const user = await getUser();
+    const max = user.subscription && user.subscription.max_level_granted ? user.subscription.max_level_granted : 60;
+    const lvl = Math.min(60, Math.max(1, Number(arg) || user.level));
+    const [subs, asg] = await Promise.all([api.list(`/subjects?levels=${lvl}`), api.list(`/assignments?levels=${lvl}`)]);
+    if (stale()) return;
+    subs.forEach((s) => api.subjectCache.set(s.id, s));
+    const amap = new Map(asg.map((a) => [a.data.subject_id, a]));
+    const visible = subs.filter((s) => !s.data.hidden_at);
+    const group = (types) => visible.filter((s) => types.includes(s.object)).sort((a, b) => a.data.lesson_position - b.data.lesson_position);
+    const section = (title, list) => (list.length ? `<div class="group"><h2>${title}</h2><div class="tiles">${list.map((s) => tile(s, amap.get(s.id) || null)).join('')}</div></div>` : '');
+
+    app.innerHTML = `<div class="wrap">
+      <div class="lvlbar"><h1 style="margin:0">Level</h1>
+        <select id="lvl-select" aria-label="Level">${Array.from({ length: 60 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === lvl ? ' selected' : ''}>${n}${n > max ? ' (locked by plan)' : ''}</option>`).join('')}</select></div>
+      <div class="legend"><span><i style="background:#ffd23f"></i>Apprentice</span><span><i style="background:#5ce08f"></i>Guru</span><span><i style="background:#3dc5ff"></i>Master</span><span><i style="background:#fff;border:1px solid var(--line)"></i>Enlightened</span><span><i style="background:#111"></i>Burned</span><span>Faded means locked</span></div>
+      ${section('Radicals', group(['radical']))}${section('Kanji', group(['kanji']))}${section('Vocabulary', group(['vocabulary', 'kana_vocabulary']))}
+    </div>`;
+    $('#lvl-select').onchange = (e) => go('#/levels/' + e.target.value);
+  }
+
+  // ---------- quiz engine (reviews and the lesson quiz) ----------
+  function makeItem(assignment, subject, synonyms) {
+    const meaningOnly = subject.object === 'radical' || subject.object === 'kana_vocabulary';
+    return { assignment, subject, synonyms: synonyms || [], pending: meaningOnly ? ['meaning'] : ['meaning', 'reading'], incorrect: { meaning: 0, reading: 0 } };
+  }
+
+  function runQuiz(opts) {
+    const practice = !!opts.practice;
+    const prog = opts.progress || {};
+    const st = {
+      queue: opts.items.slice(), pool: [], done: [], doneBase: prog.done || 0,
+      total: prog.total || opts.items.length, answered: prog.answered || 0, correct: prog.correct || 0,
+      cur: null, phase: 'ask', lastCorrect: false, undo: null, uncommitted: null,
+    };
+    const BATCH = 10;
+    const doneN = () => st.doneBase + st.done.length;
+
+    // A finished item is sent to WaniKani as soon as you move on to the next card
+    // (until then "Undo answer" can still take it back).
+    function commit() {
+      const item = st.uncommitted;
+      if (!item) return;
+      st.uncommitted = null;
+      if (practice) return;
+      api.queueReview({
+        assignment_id: item.assignment.id,
+        incorrect_meaning_answers: item.incorrect.meaning,
+        incorrect_reading_answers: item.incorrect.reading,
+        created_at: new Date().toISOString(),
+      });
+      api.flushPending().catch(() => { /* stays queued, retried later */ });
+    }
+
+    // Progress on unfinished items (including half-answered ones) is saved after every answer.
+    function save() {
+      if (!opts.persist) return;
+      const left = st.pool.concat(st.queue);
+      if (!left.length) { Session.clear(); return; }
+      Session.save({
+        v: 1, savedAt: Date.now(), total: st.total, done: doneN(), answered: st.answered, correct: st.correct,
+        items: left.map((i) => ({ a: i.assignment.id, p: i.pending, i: [i.incorrect.meaning, i.incorrect.reading] })),
+      });
+    }
+
+    function pickKind(item) {
+      const first = settings.firstQ;
+      if (first !== 'random' && item.pending.includes(first)) return first;
+      return rand(item.pending);
+    }
+
+    function next() {
+      commit();
+      while (st.pool.length < BATCH && st.queue.length) st.pool.push(st.queue.shift());
+      if (!st.pool.length) {
+        st.phase = 'done';
+        if (opts.persist) Session.clear();
+        opts.onFinish(st);
+        return;
+      }
+      save();
+      const prev = st.cur;
+      let item;
+      if (settings.backToBack && prev && st.lastCorrect && prev.item.pending.length && st.pool.includes(prev.item)) {
+        item = prev.item; // keep going with the same item
+      } else {
+        let candidates = st.pool;
+        if (candidates.length > 1 && prev) candidates = candidates.filter((i) => i !== prev.item);
+        item = rand(candidates);
+      }
+      st.cur = { item, kind: pickKind(item) };
+      st.undo = null;
+      st.phase = 'ask';
+      draw();
+    }
+
+    function updateTop() {
+      const pct = st.total ? Math.round(doneN() / st.total * 100) : 0;
+      const bar = $('#q-bar'); if (bar) bar.style.width = Math.min(100, pct) + '%';
+      const stats = $('#q-stats');
+      if (stats) stats.textContent = `${Math.max(0, st.total - doneN())} left` + (st.answered ? `, ${Math.round(st.correct / st.answered * 100)}% correct` : '');
+    }
+
+    function draw() {
+      const { item, kind } = st.cur;
+      const s = item.subject;
+      const label = `${TYPE_LABEL[s.object]} ${kind === 'reading' ? 'reading' : (s.object === 'radical' ? 'name' : 'meaning')}`;
+      app.innerHTML = `<div class="quiz">
+        <div class="qtop">
+          <button class="link" id="q-quit" type="button">Quit</button>
+          <span class="qstats" id="q-stats"></span>
+          ${practice ? '<span></span>' : '<button class="link" id="q-wrap" type="button">Wrap up</button>'}
+        </div>
+        <div class="progress"><i id="q-bar"></i></div>
+        <div class="qcard t-${typeClass(s.object)}">
+          ${settings.showLevel ? `<span class="qlevel">Level ${s.data.level}</span>` : ''}
+          <div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>
+          <div class="qlabel">${esc(label)}</div>
+        </div>
+        <form id="q-form" class="answer" autocomplete="off">
+          <input id="q-input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"
+            lang="${kind === 'reading' ? 'ja' : 'en'}" placeholder="${kind === 'reading' ? 'こたえ' : 'Your answer'}" aria-label="${esc(label)}">
+          <button id="q-go" type="submit">Check</button>
+        </form>
+        <div class="qmsg" id="q-msg"></div>
+        <div id="q-feedback"></div>
+      </div>`;
+      updateTop();
+      const input = $('#q-input');
+      input.focus();
+
+      if (kind === 'reading') {
+        input.addEventListener('input', (e) => {
+          if (e.isComposing || st.phase !== 'ask') return;
+          const v = Kana.toKana(input.value);
+          if (v !== input.value) input.value = v;
+        });
+      }
+      $('#q-form').addEventListener('submit', (e) => { e.preventDefault(); if (st.phase === 'ask') submit(); else if (st.phase === 'feedback') next(); });
+      $('#q-quit').onclick = () => { if (confirm(opts.quitMessage || 'Quit this session?')) go('#/'); };
+      const wrap = $('#q-wrap');
+      if (wrap) wrap.onclick = () => {
+        st.queue = [];
+        st.total = doneN() + st.pool.length;
+        wrap.disabled = true;
+        updateTop();
+        save();
+        toast('Wrapping up: finish the items already in progress.');
+      };
+    }
+
+    function msg(text, warn) {
+      const m = $('#q-msg');
+      m.textContent = text || '';
+      m.classList.toggle('warn', !!warn);
+    }
+
+    function submit() {
+      const input = $('#q-input');
+      const { item, kind } = st.cur;
+      const res = kind === 'meaning' ? Check.meaning(item.subject, item.synonyms, input.value) : Check.reading(item.subject, input.value);
+      if (res.invalid) {
+        msg(res.invalid, true);
+        input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
+        return;
+      }
+      st.undo = {
+        item, kind, value: input.value, pending: item.pending.slice(), incorrect: Object.assign({}, item.incorrect),
+        answered: st.answered, correct: st.correct, lastCorrect: st.lastCorrect,
+      };
+      st.answered++;
+      if (res.correct) { st.correct++; item.pending = item.pending.filter((k) => k !== kind); } else { item.incorrect[kind]++; }
+      st.lastCorrect = !!res.correct;
+      st.phase = 'feedback';
+      if (res.correct && !item.pending.length) {
+        st.pool = st.pool.filter((i) => i !== item);
+        st.done.push(item);
+        st.uncommitted = item;
+      }
+      showFeedback(res);
+      updateTop();
+      save();
+    }
+
+    function undo() {
+      const u = st.undo;
+      if (!u || st.phase !== 'feedback') return;
+      const item = u.item;
+      item.pending = u.pending;
+      item.incorrect = u.incorrect;
+      st.answered = u.answered;
+      st.correct = u.correct;
+      st.lastCorrect = u.lastCorrect;
+      if (st.uncommitted === item) {
+        st.uncommitted = null;
+        st.done = st.done.filter((i) => i !== item);
+        if (!st.pool.includes(item)) st.pool.unshift(item);
+      }
+      st.undo = null;
+      st.cur = { item, kind: u.kind };
+      st.phase = 'ask';
+      draw();
+      const input = $('#q-input');
+      input.value = u.value;
+      input.select();
+      save();
+    }
+
+    function showFeedback(res) {
+      const { item, kind } = st.cur;
+      const d = item.subject.data;
+      const input = $('#q-input');
+      input.readOnly = true;
+      input.classList.add(res.correct ? 'ok' : 'bad');
+      $('#q-go').textContent = 'Next';
+      msg('');
+      let accepted;
+      if (kind === 'meaning') {
+        accepted = d.meanings.filter((m) => m.accepted_answer).map((m) => m.meaning).concat(item.synonyms);
+      } else {
+        accepted = (d.readings || []).filter((r) => r.accepted_answer).map((r) => r.reading);
+      }
+      $('#q-feedback').innerHTML = `
+        <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted">or Ctrl/Cmd+Z</span></div>
+        <p class="verdict ${res.correct ? 'ok' : 'bad'}">${res.correct ? (res.fuzzy ? 'Correct, counted as a close match' : 'Correct') : 'Not quite'}</p>
+        <p class="answers"><span class="muted">Accepted:</span> ${esc(accepted.join(', '))}</p>
+        <details class="info"${res.correct ? '' : ' open'}><summary>Details</summary><div class="info-body">${renderInfo(item.subject, null)}</div></details>`;
+      $('#q-undo').onclick = undo;
+      $('#q-go').focus();
+    }
+
+    // Keyboard undo, and make sure a finished card is saved when you leave the page.
+    const onKey = (e) => {
+      if (dlg.open || st.phase !== 'feedback') return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+    };
+    const onHide = () => { if (document.visibilityState === 'hidden') commit(); };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', commit);
+    cleanup = () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', commit);
+      commit();
+    };
+
+    next();
+  }
+
+  // ---------- reviews ----------
+  async function reviewsView(my) {
+    const stale = () => my !== routeSeq;
+    loading('Loading reviews…');
+    await api.flushPending().catch(() => {});
+    const all = await api.list('/assignments?immediately_available_for_review');
+    if (stale()) return;
+    if (!all.length) { Session.clear(); return empty('No reviews right now', 'Come back when your next reviews are due.'); }
+
+    // Pick up an unfinished session if there is one.
+    let chosen, progress;
+    const saved = new Map();
+    const snap = Session.load();
+    if (snap) {
+      const byId = new Map(all.map((a) => [a.id, a]));
+      const keep = snap.items.filter((x) => byId.has(x.a));
+      if (keep.length) {
+        chosen = keep.map((x) => byId.get(x.a));
+        keep.forEach((x) => saved.set(x.a, x));
+        const done = snap.done || 0;
+        progress = { done, total: done + keep.length, answered: snap.answered || 0, correct: snap.correct || 0 };
+      } else {
+        Session.clear();
+      }
+    }
+    if (!chosen) {
+      all.sort((a, b) => new Date(a.data.available_at) - new Date(b.data.available_at));
+      const cap = settings.sessionSize;
+      chosen = cap ? all.slice(0, cap) : all;
+    }
+
+    const ids = chosen.map((a) => a.data.subject_id);
+    const [subs, synonyms] = await Promise.all([api.getSubjects(ids), api.getSynonyms(ids)]);
+    if (stale()) return;
+
+    const items = chosen.filter((a) => subs.has(a.data.subject_id)).map((a) => {
+      const item = makeItem(a, subs.get(a.data.subject_id), synonyms.get(a.data.subject_id));
+      const x = saved.get(a.id);
+      if (x) {
+        const p = (x.p || []).filter((k) => item.pending.includes(k));
+        if (p.length) item.pending = p;
+        item.incorrect = { meaning: (x.i || [])[0] || 0, reading: (x.i || [])[1] || 0 };
+      }
+      return item;
+    });
+    if (!progress) shuffle(items);
+    else toast('Picked up your unfinished session.');
+
+    runQuiz({
+      items,
+      persist: true,
+      progress,
+      quitMessage: 'Quit for now? Your progress is saved and you can pick up right where you left off.',
+      onFinish: (st) => reviewSummary(st, all.length - chosen.length),
+    });
+  }
+
+  function reviewSummary(st, leftOver) {
+    const total = st.doneBase + st.done.length;
+    const accuracy = st.answered ? Math.round(st.correct / st.answered * 100) : 100;
+    const missed = st.done.filter((i) => i.incorrect.meaning + i.incorrect.reading > 0);
+    app.innerHTML = `<div class="wrap">
+      <div class="center"><h1>Session complete</h1>
+      <p>${total} item${total === 1 ? '' : 's'} reviewed, ${accuracy}% of answers correct.</p>
+      <p class="muted" id="sync">Sending results to WaniKani…</p></div>
+      ${missed.length ? `<div class="panel"><h2>Items you missed</h2><div class="tiles">${missed.map((i) => tile(i.subject)).join('')}</div></div>` : ''}
+      <div class="row" style="justify-content:center">
+        ${leftOver > 0 ? '<a class="btn" href="#/reviews" id="more">Keep going</a>' : ''}
+        <a class="btn ghost" href="#/">Back home</a>
+      </div></div>`;
+    const more = $('#more');
+    if (more) more.addEventListener('click', (e) => { e.preventDefault(); route(); });
+    api.flushPending().then((n) => {
+      const el = $('#sync');
+      if (el) el.textContent = n ? `${n} result${n > 1 ? 's are' : ' is'} still waiting to send. They will retry automatically.` : 'Results saved to WaniKani.';
+    }).catch((e) => { const el = $('#sync'); if (el) el.textContent = e.message + ' Your results are kept and will retry.'; });
+  }
+
+  // ---------- lessons ----------
+  async function lessonsView(my) {
+    const stale = () => my !== routeSeq;
+    loading('Loading lessons…');
+    const all = await api.list('/assignments?immediately_available_for_lessons');
+    if (stale()) return;
+    if (!all.length) return empty('No lessons right now', 'New lessons unlock as you pass items in your reviews.');
+
+    const subs = await api.getSubjects(all.slice(0, LESSON_CAP).map((a) => a.data.subject_id));
+    if (stale()) return;
+    const items = all.filter((a) => subs.has(a.data.subject_id)).map((a) => makeItem(a, subs.get(a.data.subject_id)));
+    items.sort((a, b) => a.subject.data.level - b.subject.data.level
+      || TYPE_ORDER[a.subject.object] - TYPE_ORDER[b.subject.object]
+      || (a.subject.data.lesson_position || 0) - (b.subject.data.lesson_position || 0));
+    lessonBatch(items, my);
+  }
+
+  async function lessonBatch(remaining, my) {
+    const stale = () => my !== routeSeq;
+    const size = settings.lessonBatch;
+    const batch = remaining.slice(0, size);
+    const rest = remaining.slice(size);
+
+    loading();
+    const relIds = batch.flatMap((i) => i.subject.data.component_subject_ids || []);
+    const related = await api.getSubjects(relIds).catch(() => new Map());
+    if (stale()) return;
+
+    let idx = 0;
+    const seen = new Set([0]);
+    const onKey = (e) => {
+      if (dlg.open || /input|select|textarea/i.test(e.target.tagName)) return;
+      if (e.key === 'ArrowRight') step(1);
+      if (e.key === 'ArrowLeft') step(-1);
+    };
+    if (cleanup) cleanup();
+    document.addEventListener('keydown', onKey);
+    cleanup = () => document.removeEventListener('keydown', onKey);
+
+    function step(d) {
+      const n = idx + d;
+      if (n < 0 || n >= batch.length) return;
+      idx = n; seen.add(n); draw();
+    }
+
+    function draw() {
+      const cur = batch[idx].subject;
+      const last = idx === batch.length - 1;
+      const allSeen = seen.size === batch.length;
+      app.innerHTML = `<div class="wrap">
+        <div class="row between" style="margin-bottom:10px"><span class="muted">Lesson ${idx + 1} of ${batch.length}${rest.length ? `, ${rest.length} more after this batch` : ''}</span><a class="link" href="#/">Leave</a></div>
+        <div class="ltabs">${batch.map((b, i) => `<button type="button" class="ltab t-${typeClass(b.subject.object)}${i === idx ? ' on' : seen.has(i) ? ' seen' : ''}" data-tab="${i}" aria-label="Item ${i + 1}">${glyph(b.subject)}</button>`).join('')}</div>
+        ${hero(cur)}
+        <div class="info-body">${renderInfo(cur, related, { usedIn: false })}</div>
+        <div class="lnav">
+          <button class="btn ghost" id="l-prev" type="button"${idx === 0 ? ' disabled' : ''}>Back</button>
+          ${last ? `<button class="btn" id="l-quiz" type="button"${allSeen ? '' : ' disabled'}>${allSeen ? 'Start quiz' : 'View every item first'}</button>`
+            : '<button class="btn" id="l-next" type="button">Next</button>'}
+        </div></div>`;
+      window.scrollTo(0, 0);
+      document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { idx = Number(b.dataset.tab); seen.add(idx); draw(); }; });
+      $('#l-prev').onclick = () => step(-1);
+      const nx = $('#l-next'); if (nx) nx.onclick = () => step(1);
+      const q = $('#l-quiz'); if (q) q.onclick = startQuiz;
+    }
+
+    function startQuiz() {
+      cleanup(); cleanup = null;
+      const quizItems = shuffle(batch.map((i) => makeItem(i.assignment, i.subject)));
+      runQuiz({
+        items: quizItems,
+        practice: true,
+        quitMessage: 'Quit the quiz? These lessons will not be started.',
+        onFinish: async () => {
+          loading('Starting your new items…');
+          let started = 0, error = '';
+          for (const i of batch) {
+            try {
+              await api.request(`/assignments/${i.assignment.id}/start`, { method: 'PUT', body: { assignment: { started_at: new Date().toISOString() } } });
+              started++;
+            } catch (e) { error = e.message; if (e.status === 401 || e.status === 403) break; }
+          }
+          if (stale()) return;
+          app.innerHTML = `<div class="wrap center"><h1>Batch complete</h1>
+            <p>${started} item${started === 1 ? '' : 's'} started. The first review comes in about four hours.</p>
+            ${error ? `<p class="error">${esc(error)}</p>` : ''}
+            <div class="row" style="justify-content:center">
+              ${rest.length && !error ? `<button class="btn" id="nb" type="button">Next batch (${rest.length} left)</button>` : ''}
+              <a class="btn ghost" href="#/">Back home</a></div></div>`;
+          const nb = $('#nb'); if (nb) nb.onclick = () => lessonBatch(rest, my);
+        },
+      });
+    }
+
+    draw();
+  }
+
+  // ---------- go ----------
+  route();
+})();

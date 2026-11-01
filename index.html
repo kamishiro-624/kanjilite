@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KanjiLite – an unofficial WaniKani client</title>
+  <meta name="description" content="A small, static client for WaniKani: dashboard, lessons, reviews and a level browser.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E鰐%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar" id="topbar">
+    <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true">鰐</span>KanjiLite</a>
+    <nav class="nav" id="nav" hidden>
+      <a href="#/" data-nav="">Home</a>
+      <a href="#/levels" data-nav="levels">Levels</a>
+      <button type="button" id="open-settings" aria-label="Settings">Settings</button>
+    </nav>
+  </header>
+
+  <main id="app" aria-live="polite"></main>
+
+  <div id="toast" role="status"></div>
+
+  <dialog id="modal">
+    <div class="modal-inner">
+      <button type="button" class="modal-x" data-close aria-label="Close">Close</button>
+      <div id="modal-body"></div>
+    </div>
+  </dialog>
+
+  <script src="kana.js"></script>
+  <script src="check.js"></script>
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
