@@ -44,16 +44,23 @@ Treat the token like a password. Anyone who uses KanjiLite on a shared computer 
 
 ## Files
 
-| File | Purpose |
-| --- | --- |
-| `index.html` | App shell |
-| `style.css` | Styles, light and dark |
-| `app.js` | Routing, dashboard, lessons, reviews, level browser, settings |
-| `api.js` | WaniKani API wrapper: request pacing, 429 handling, pagination, IndexedDB access, upload queues for reviews and lesson starts |
-| `store.js` | Local copy of your data: first download, incremental sync, and the queries that replace API calls (due reviews, lessons, forecast, level subjects) |
-| `ui.js` | CSS-styled select, number stepper, switch and confirm dialog |
-| `check.js` | Answer checking (meanings with typo tolerance, readings) |
-| `kana.js` | Romaji to hiragana conversion |
+```
+index.html            App shell
+css/
+  style.css           Styles, light and dark
+js/
+  app.js              Routing, dashboard, lessons, reviews, level browser, settings
+  data/
+    api.js            WaniKani API wrapper: request pacing, 429 handling, pagination, IndexedDB access, upload queues
+    store.js          Local copy of your data: first download, incremental sync, and the queries that replace API calls
+  logic/
+    check.js          Answer checking (meanings with typo tolerance, readings)
+    kana.js           Romaji to hiragana conversion
+  ui/
+    ui.js             CSS-styled select, number stepper, switch and confirm dialog
+```
+
+Scripts load in this order (see `index.html`): `kana`, `check`, `api`, `store`, `ui`, `app`.
 
 ## Notes and limits
 
