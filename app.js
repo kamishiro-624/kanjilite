@@ -17,7 +17,15 @@
     get backToBack() { return localStorage.getItem('kl_b2b') === '1'; },
     get firstQ() { return localStorage.getItem('kl_first') || 'random'; }, // random | meaning | reading
     get showLevel() { return localStorage.getItem('kl_show_level') !== '0'; },
+    get wrongDelay() { return getNum('kl_wrong_delay', 1000); }, // ms "Next" stays locked after a wrong answer
+    get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark
   };
+  function applyTheme() {
+    const t = settings.theme;
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
+  }
+  applyTheme();
 
   // Unfinished review session, saved after every answer so you can leave and come back.
   const Session = {
@@ -38,6 +46,14 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 3800);
   }
+
+  // The API layer paces itself to WaniKani's rate limit; tell the person when a screen has to wait.
+  let waitToastAt = 0;
+  api.onWait = (ms) => {
+    if (Date.now() - waitToastAt < 8000) return;
+    waitToastAt = Date.now();
+    toast(`Pausing about ${Math.ceil(ms / 1000)}s to stay within WaniKani’s rate limit…`);
+  };
 
   const loading = (msg) => { app.innerHTML = `<div class="wrap center"><div class="spinner"></div><p class="muted">${esc(msg || 'Loading…')}</p></div>`; };
   const empty = (title, text) => { app.innerHTML = `<div class="wrap center"><h1>${esc(title)}</h1><p class="muted">${esc(text)}</p><a class="btn" href="#/">Back home</a></div>`; };
@@ -184,44 +200,108 @@
   });
 
   // ---------- settings ----------
+  const setSessionSize = (v) => localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
   const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v))));
-  function saveSessionSize(v) {
-    if (v === '' || isNaN(Number(v))) return false;
-    localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
-    return true;
-  }
 
-  function openSettings() {
-    const opt = (v, label, cur) => `<option value="${v}"${String(cur) === String(v) ? ' selected' : ''}>${label}</option>`;
+  const bindSel = (id, fn) => UI.bindSelect($('#' + id).closest('[data-select]'), fn);
+
+  /** Settings dialog. General holds appearance, lessons and the account; Reviews holds review options only. */
+  function openSettings(tab) {
+    const which = tab === 'reviews' ? 'reviews' : 'general';
+    const nums = (list) => list.map((n) => ({ value: n, label: String(n) }));
+    const delays = [[0, 'Off'], [500, '0.5 seconds'], [1000, '1 second'], [1500, '1.5 seconds'], [2000, '2 seconds'], [3000, '3 seconds']]
+      .map(([value, label]) => ({ value, label }));
+    const themes = [{ value: 'system', label: 'Match my device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark (matte black)' }];
+    const firsts = [{ value: 'random', label: 'Random' }, { value: 'meaning', label: 'Meaning' }, { value: 'reading', label: 'Reading' }];
+
     openModal(`<h2>Settings</h2>
-      <h3 class="sethead">Reviews</h3>
-      <div class="field"><label for="s-size">Reviews per session</label>
-        <input id="s-size" class="num" type="number" min="0" max="5000" inputmode="numeric" value="${settings.sessionSize}">
-        <span class="muted">Any number you like. 0 means everything that’s due.</span></div>
-      <label class="check"><input type="checkbox" id="s-b2b"${settings.backToBack ? ' checked' : ''}> Ask an item’s reading and meaning back to back</label>
-      <div class="field"><label for="s-first">Question asked first</label>
-        <select id="s-first">${opt('random', 'Random', settings.firstQ)}${opt('meaning', 'Meaning', settings.firstQ)}${opt('reading', 'Reading', settings.firstQ)}</select></div>
-      <label class="check"><input type="checkbox" id="s-level"${settings.showLevel ? ' checked' : ''}> Show the item’s level on review cards</label>
-      <h3 class="sethead">Lessons</h3>
-      <div class="field"><label for="s-batch">Lessons per batch</label>
-        <select id="s-batch">${[3, 5, 7, 10].map((n) => opt(n, n, settings.lessonBatch)).join('')}</select></div>
-      <div class="row between" style="margin-top:22px">
-        <button class="btn ghost" id="s-logout" type="button">Log out</button>
-        <button class="btn" data-close type="button">Done</button>
-      </div>`);
-    $('#s-size').onchange = (e) => { if (saveSessionSize(e.target.value)) e.target.value = settings.sessionSize; };
+      <div class="tabs" role="tablist" aria-label="Settings sections">
+        <button type="button" role="tab" id="tab-general" data-tab="general" aria-controls="panel-general" aria-selected="${which === 'general'}" tabindex="${which === 'general' ? 0 : -1}">General</button>
+        <button type="button" role="tab" id="tab-reviews" data-tab="reviews" aria-controls="panel-reviews" aria-selected="${which === 'reviews'}" tabindex="${which === 'reviews' ? 0 : -1}">Reviews</button>
+      </div>
+
+      <div role="tabpanel" id="panel-general" aria-labelledby="tab-general"${which === 'general' ? '' : ' hidden'}>
+        <section class="setcard"><h3>Appearance</h3>
+          <div class="field"><label for="s-theme">Theme</label>${UI.selectHTML('s-theme', themes, settings.theme)}</div>
+        </section>
+        <section class="setcard"><h3>Lessons</h3>
+          <div class="field"><label for="s-batch">Lessons per batch</label>${UI.selectHTML('s-batch', nums([3, 5, 7, 10]), settings.lessonBatch)}
+            <span class="muted">How many new items you study before each quiz.</span></div>
+        </section>
+        <section class="setcard"><h3>Account</h3>
+          <p class="muted">Your token is stored only in this browser and sent only to WaniKani.</p>
+          <button class="btn ghost" id="s-logout" type="button">Log out</button>
+        </section>
+      </div>
+
+      <div role="tabpanel" id="panel-reviews" aria-labelledby="tab-reviews"${which === 'reviews' ? '' : ' hidden'}>
+        <section class="setcard"><h3>Session</h3>
+          <div class="field"><label for="s-size">Reviews per session</label>
+            ${UI.stepperHTML('s-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+            <span class="muted">Any number you like. 0 means everything that’s due.</span></div>
+        </section>
+        <section class="setcard"><h3>Questions</h3>
+          ${UI.switchHTML('s-b2b', settings.backToBack, 'Ask an item’s reading and meaning back to back')}
+          <div class="field"><label for="s-first">Question asked first</label>${UI.selectHTML('s-first', firsts, settings.firstQ)}</div>
+        </section>
+        <section class="setcard"><h3>After a wrong answer</h3>
+          <div class="field"><label for="s-delay">Lock “Next” for</label>${UI.selectHTML('s-delay', delays, settings.wrongDelay)}
+            <span class="muted">Keeps a stray extra Enter press from skipping the correction. Undo still works.</span></div>
+        </section>
+        <section class="setcard"><h3>Display</h3>
+          ${UI.switchHTML('s-level', settings.showLevel, 'Show the item’s level on review cards')}
+        </section>
+      </div>
+
+      <div class="row end" style="margin-top:18px"><button class="btn" data-close type="button">Done</button></div>`);
+
+    const tabs = [...dlg.querySelectorAll('[role=tab]')];
+    const show = (name, focus) => {
+      UI.closeSelect();
+      tabs.forEach((t) => {
+        const on = t.dataset.tab === name;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+        $('#panel-' + t.dataset.tab).hidden = !on;
+        if (on && focus) t.focus();
+      });
+    };
+    tabs.forEach((t) => {
+      t.onclick = () => show(t.dataset.tab);
+      t.onkeydown = (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const i = tabs.indexOf(t);
+        show(tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length].dataset.tab, true);
+      };
+    });
+    $('[role=tab][aria-selected=true]').focus();
+
+    bindSel('s-theme', (v) => { localStorage.setItem('kl_theme', v); applyTheme(); });
+    bindSel('s-batch', (v) => localStorage.setItem('kl_lesson_batch', String(v)));
+    bindSel('s-first', (v) => localStorage.setItem('kl_first', v));
+    bindSel('s-delay', (v) => localStorage.setItem('kl_wrong_delay', String(v)));
+    UI.bindStepper($('#s-size').closest('[data-stepper]'), setSessionSize);
     $('#s-b2b').onchange = (e) => localStorage.setItem('kl_b2b', e.target.checked ? '1' : '0');
-    $('#s-first').onchange = (e) => localStorage.setItem('kl_first', e.target.value);
     $('#s-level').onchange = (e) => localStorage.setItem('kl_show_level', e.target.checked ? '1' : '0');
-    $('#s-batch').onchange = (e) => localStorage.setItem('kl_lesson_batch', e.target.value);
-    $('#s-logout').onclick = () => {
+    $('#s-logout').onclick = async () => {
       const left = api.pending().length;
-      const msg = left ? `You have ${left} finished review(s) that haven't been sent to WaniKani yet. Logging out will discard them. Log out anyway?` : 'Log out and remove your token from this browser?';
-      if (!confirm(msg)) return;
+      const ok = await UI.confirm({
+        title: 'Log out?',
+        message: left ? `You have ${left} finished review(s) that haven’t been sent to WaniKani yet. Logging out will discard them.` : 'This removes your token from this browser.',
+        ok: 'Log out', danger: true,
+      });
+      if (!ok) return;
       api.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
     };
   }
-  $('#open-settings').addEventListener('click', openSettings);
+  $('#open-settings').addEventListener('click', () => openSettings());
+
+  // After the dialog closes in the middle of a quiz, put the cursor back where it was.
+  dlg.addEventListener('close', () => {
+    const f = $('.quiz #q-input:not([readonly])') || $('.quiz #q-go');
+    if (f) f.focus();
+  });
 
   // ---------- routing ----------
   let routeSeq = 0;
@@ -238,6 +318,7 @@
   function route() {
     const my = ++routeSeq;
     if (cleanup) { cleanup(); cleanup = null; }
+    UI.closeSelect();
     if (dlg.open) dlg.close();
     window.scrollTo(0, 0);
     const parts = location.hash.replace(/^#\/?/, '').split('/');
@@ -292,7 +373,7 @@
   async function homeView(my) {
     const stale = () => my !== routeSeq;
     loading();
-    const [user, summary] = await Promise.all([getUser(true), api.request('/summary')]);
+    const [user, summary] = await Promise.all([getUser(), api.request('/summary')]);
     if (stale()) return;
 
     const now = Date.now();
@@ -321,8 +402,8 @@
       <div id="lvl-progress"></div>
       <div class="panel session-panel">
         <label for="h-size"><b>Reviews per session</b></label>
-        <input id="h-size" class="num" type="number" min="0" max="5000" inputmode="numeric" value="${settings.sessionSize}">
-        <span class="muted">0 means everything that’s due. More options are in Settings.</span>
+        ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+        <span class="muted">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More review options</button></span>
       </div>
       <div class="panel">
         <h2>Coming up</h2>
@@ -331,13 +412,12 @@
       </div>
     </div>`;
 
-    $('#h-size').onchange = (e) => {
-      if (saveSessionSize(e.target.value)) toast('Session length saved.');
-      e.target.value = settings.sessionSize;
-    };
+    UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
+    $('#h-more').onclick = () => openSettings('reviews');
     const discard = $('#discard-session');
-    if (discard) discard.onclick = () => {
-      if (confirm('Discard the unfinished session? Items you already finished are safe on WaniKani.')) { Session.clear(); route(); }
+    if (discard) discard.onclick = async () => {
+      const ok = await UI.confirm({ title: 'Discard this session?', message: 'Items you already finished are safe on WaniKani.', ok: 'Discard', danger: true });
+      if (ok) { Session.clear(); route(); }
     };
     const retry = $('#retry-sync');
     if (retry) retry.onclick = async () => {
@@ -351,13 +431,16 @@
     // Level progress: 90% of the level's kanji at Guru or above unlocks the next level.
     try {
       const lvl = user.level;
-      const [kanji, passed] = await Promise.all([
-        api.request(`/subjects?levels=${lvl}&types=kanji`),
-        api.request(`/assignments?levels=${lvl}&subject_types=kanji&srs_stages=5,6,7,8,9`),
-      ]);
+      // How many kanji a level has never changes, so it is only looked up once per level.
+      const totalKey = 'kl_kanji_total_' + lvl;
+      let total = Number(localStorage.getItem(totalKey)) || 0;
+      const jobs = [api.request(`/assignments?levels=${lvl}&subject_types=kanji&srs_stages=5,6,7,8,9`, { background: true })];
+      if (!total) jobs.push(api.request(`/subjects?levels=${lvl}&types=kanji`, { background: true }));
+      const [passed, kanji] = await Promise.all(jobs);
+      if (kanji) { total = kanji.total_count; try { localStorage.setItem(totalKey, String(total)); } catch (e) { /* ignore */ } }
       const el = $('#lvl-progress');
       if (stale() || !el) return;
-      const total = kanji.total_count, done = passed.total_count;
+      const done = passed.total_count;
       const need = Math.ceil(total * 0.9);
       el.innerHTML = `<div class="panel"><h2>Level ${lvl} progress</h2>
         <div class="meter" role="img" aria-label="${done} of ${need} kanji needed"><i style="width:${Math.min(100, Math.round(done / Math.max(total, 1) * 100))}%"></i><b style="left:90%"></b></div>
@@ -374,7 +457,7 @@
     const lvl = Math.min(60, Math.max(1, Number(arg) || user.level));
     const [subs, asg] = await Promise.all([api.list(`/subjects?levels=${lvl}`), api.list(`/assignments?levels=${lvl}`)]);
     if (stale()) return;
-    subs.forEach((s) => api.subjectCache.set(s.id, s));
+    api.putSubjects(subs);
     const amap = new Map(asg.map((a) => [a.data.subject_id, a]));
     const visible = subs.filter((s) => !s.data.hidden_at);
     const group = (types) => visible.filter((s) => types.includes(s.object)).sort((a, b) => a.data.lesson_position - b.data.lesson_position);
@@ -382,11 +465,11 @@
 
     app.innerHTML = `<div class="wrap">
       <div class="lvlbar"><h1 style="margin:0">Level</h1>
-        <select id="lvl-select" aria-label="Level">${Array.from({ length: 60 }, (_, i) => i + 1).map((n) => `<option value="${n}"${n === lvl ? ' selected' : ''}>${n}${n > max ? ' (locked by plan)' : ''}</option>`).join('')}</select></div>
+        ${UI.selectHTML('lvl-select', Array.from({ length: 60 }, (_, i) => i + 1).map((n) => ({ value: n, label: `${n}${n > max ? ' (locked by plan)' : ''}` })), lvl, 'Level')}</div>
       <div class="legend"><span><i style="background:#ffd23f"></i>Apprentice</span><span><i style="background:#5ce08f"></i>Guru</span><span><i style="background:#3dc5ff"></i>Master</span><span><i style="background:#fff;border:1px solid var(--line)"></i>Enlightened</span><span><i style="background:#111"></i>Burned</span><span>Faded means locked</span></div>
       ${section('Radicals', group(['radical']))}${section('Kanji', group(['kanji']))}${section('Vocabulary', group(['vocabulary', 'kana_vocabulary']))}
     </div>`;
-    $('#lvl-select').onchange = (e) => go('#/levels/' + e.target.value);
+    UI.bindSelect($('#lvl-select').closest('[data-select]'), (v) => go('#/levels/' + v));
   }
 
   // ---------- quiz engine (reviews and the lesson quiz) ----------
@@ -401,7 +484,7 @@
     const st = {
       queue: opts.items.slice(), pool: [], done: [], doneBase: prog.done || 0,
       total: prog.total || opts.items.length, answered: prog.answered || 0, correct: prog.correct || 0,
-      cur: null, phase: 'ask', lastCorrect: false, undo: null, uncommitted: null,
+      cur: null, phase: 'ask', lastCorrect: false, undo: null, uncommitted: null, lockUntil: 0,
     };
     const BATCH = 10;
     const doneN = () => st.doneBase + st.done.length;
@@ -472,6 +555,7 @@
     }
 
     function draw() {
+      st.lockUntil = 0;
       const { item, kind } = st.cur;
       const s = item.subject;
       const label = `${TYPE_LABEL[s.object]} ${kind === 'reading' ? 'reading' : (s.object === 'radical' ? 'name' : 'meaning')}`;
@@ -506,8 +590,18 @@
           if (v !== input.value) input.value = v;
         });
       }
-      $('#q-form').addEventListener('submit', (e) => { e.preventDefault(); if (st.phase === 'ask') submit(); else if (st.phase === 'feedback') next(); });
-      $('#q-quit').onclick = () => { if (confirm(opts.quitMessage || 'Quit this session?')) go('#/'); };
+      $('#q-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (st.phase === 'ask') submit();
+        else if (st.phase === 'feedback') {
+          if (Date.now() < st.lockUntil) nudge(); // still locked after a wrong answer
+          else next();
+        }
+      });
+      $('#q-quit').onclick = async () => {
+        const ok = await UI.confirm({ title: 'Quit this session?', message: opts.quitMessage || 'Your progress will not be kept.', ok: 'Quit', cancel: 'Keep going', danger: true });
+        if (ok) go('#/');
+      };
       const wrap = $('#q-wrap');
       if (wrap) wrap.onclick = () => {
         st.queue = [];
@@ -576,14 +670,52 @@
       save();
     }
 
+    const ICON_OK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const ICON_BAD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+    const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // A brief wash of green or red over the whole screen.
+    function flash(ok) {
+      if (reduceMotion()) return;
+      const f = document.createElement('div');
+      f.className = 'flash ' + (ok ? 'ok' : 'bad');
+      f.setAttribute('aria-hidden', 'true');
+      f.addEventListener('animationend', () => f.remove());
+      document.body.appendChild(f);
+    }
+
+    function nudge() {
+      const b = $('#q-go');
+      if (!b) return;
+      b.classList.remove('nudge'); void b.offsetWidth; b.classList.add('nudge');
+    }
+
     function showFeedback(res) {
       const { item, kind } = st.cur;
       const d = item.subject.data;
       const input = $('#q-input');
+      const btn = $('#q-go');
       input.readOnly = true;
       input.classList.add(res.correct ? 'ok' : 'bad');
-      $('#q-go').textContent = 'Next';
+      btn.textContent = 'Next';
       msg('');
+
+      // Right and wrong look and move differently: ring, badge, label bar, banner, flash, shake or pop.
+      const card = $('.qcard');
+      card.classList.add(res.correct ? 'res-ok' : 'res-bad');
+      card.insertAdjacentHTML('beforeend', `<span class="qbadge ${res.correct ? 'ok' : 'bad'}" aria-hidden="true">${res.correct ? ICON_OK : ICON_BAD}</span>`);
+      flash(res.correct);
+
+      // After a wrong answer "Next" stays locked for a moment so a quick extra Enter can't skip the correction.
+      const delay = res.correct ? 0 : settings.wrongDelay;
+      st.lockUntil = delay > 0 ? Date.now() + delay : 0;
+      if (delay > 0) {
+        btn.classList.add('locking');
+        btn.setAttribute('aria-disabled', 'true');
+        btn.style.setProperty('--lock', delay + 'ms');
+        setTimeout(() => { btn.classList.remove('locking'); btn.removeAttribute('aria-disabled'); }, delay);
+      }
+
       let accepted;
       if (kind === 'meaning') {
         accepted = d.meanings.filter((m) => m.accepted_answer).map((m) => m.meaning).concat(item.synonyms);
@@ -591,17 +723,19 @@
         accepted = (d.readings || []).filter((r) => r.accepted_answer).map((r) => r.reading);
       }
       $('#q-feedback').innerHTML = `
-        <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted">or Ctrl/Cmd+Z</span></div>
-        <p class="verdict ${res.correct ? 'ok' : 'bad'}">${res.correct ? (res.fuzzy ? 'Correct, counted as a close match' : 'Correct') : 'Not quite'}</p>
+        <div class="verdict ${res.correct ? 'ok' : 'bad'}" role="status"><span class="v-icon">${res.correct ? ICON_OK : ICON_BAD}</span><span>${res.correct ? (res.fuzzy ? 'Correct, counted as a close match' : 'Correct') : 'Incorrect'}</span></div>
         <p class="answers"><span class="muted">Accepted:</span> ${esc(accepted.join(', '))}</p>
+        <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted">or Ctrl/Cmd+Z</span></div>
         <details class="info"${res.correct ? '' : ' open'}><summary>Details</summary><div class="info-body">${renderInfo(item.subject, null)}</div></details>`;
       $('#q-undo').onclick = undo;
-      $('#q-go').focus();
+      btn.focus();
     }
 
     // Keyboard undo, and make sure a finished card is saved when you leave the page.
     const onKey = (e) => {
-      if (dlg.open || st.phase !== 'feedback') return;
+      if (UI.anyDialogOpen() || st.phase !== 'feedback') return;
+      // Holding Enter must not repeat through the feedback card.
+      if (e.key === 'Enter' && e.repeat) { e.preventDefault(); return; }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
     };
     const onHide = () => { if (document.visibilityState === 'hidden') commit(); };
@@ -622,9 +756,12 @@
   async function reviewsView(my) {
     const stale = () => my !== routeSeq;
     loading('Loading reviews…');
-    await api.flushPending().catch(() => {});
-    const all = await api.list('/assignments?immediately_available_for_review');
+    api.flushPending().catch(() => {}); // sent in the background, paced to the rate limit
+    const everything = await api.list('/assignments?immediately_available_for_review');
     if (stale()) return;
+    // Items you already answered but that are still waiting to be sent are not due again.
+    const queued = new Set(api.pending().map((r) => r.assignment_id));
+    const all = everything.filter((a) => !queued.has(a.id));
     if (!all.length) { Session.clear(); return empty('No reviews right now', 'Come back when your next reviews are due.'); }
 
     // Pick up an unfinished session if there is one.

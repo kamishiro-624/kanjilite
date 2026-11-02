@@ -14,7 +14,10 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
 - **Lessons**: batches (3 to 10 items) with meanings, readings, mnemonics, example sentences and components, followed by a quiz. Items are started on WaniKani when the quiz is finished.
 - **Level browser**: every radical, kanji and vocabulary item of any level, colored by SRS stage, with a detail view for each.
 - **Offline-tolerant**: finished reviews are queued in the browser and retried until WaniKani accepts them.
-- Light and dark themes (follows your system setting).
+- **Settings** in two tabs: *General* (theme, a Lessons section, account) and *Reviews* (session length, question order, wrong-answer lock, display).
+- **Wrong-answer lock**: after a wrong answer "Next" stays locked briefly (1 second by default, configurable) so an extra Enter press can't skip the correction. Right and wrong answers differ in color, icon, motion and a text banner.
+- **Rate-limit friendly**: requests are paced below WaniKani's 60 per minute, subjects are cached in the browser, and a 429 response makes the app wait and retry instead of failing.
+- Light, dark (matte black) or follow-your-device themes. All dropdowns, steppers, switches and confirmations are drawn with CSS rather than native browser controls.
 
 ## Deploy on GitHub Pages
 
@@ -40,7 +43,8 @@ Treat the token like a password. Anyone who uses KanjiLite on a shared computer 
 | `index.html` | App shell |
 | `style.css` | Styles, light and dark |
 | `app.js` | Routing, dashboard, lessons, reviews, level browser, settings |
-| `api.js` | WaniKani API wrapper: pagination, caching, rate-limit retry, review queue |
+| `api.js` | WaniKani API wrapper: request pacing, 429 handling, pagination, caching (memory + IndexedDB), review queue |
+| `ui.js` | CSS-styled select, number stepper, switch and confirm dialog |
 | `check.js` | Answer checking (meanings with typo tolerance, readings) |
 | `kana.js` | Romaji to hiragana conversion |
 
