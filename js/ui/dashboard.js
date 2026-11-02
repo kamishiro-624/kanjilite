@@ -19,41 +19,44 @@
 
   // ---------------------------------------------------------------- level progress, split by kind of item
 
-  // Most advanced first, so each bar fills from the left as items move up.
-  const STAGES = [
-    { key: 'burned', label: 'Burned', color: '#6b7280' },
-    { key: 'enlightened', label: 'Enlightened', color: '#a78bfa' },
-    { key: 'master', label: 'Master', color: '#3dc5ff' },
-    { key: 'guru', label: 'Guru', color: '#5ce08f' },
-    { key: 'apprentice', label: 'Apprentice', color: '#ffd23f' },
-    { key: 'new', label: 'Not started', color: 'var(--line)' },
-  ];
+  // One entry per SRS stage, each its own shade of the group colour (yellow, green, blue, violet, grey).
+  // Bars run from the most advanced stage on the left to "not started" on the right.
+  const SHADES = ['#ffe58a', '#ffd23f', '#ffb81f', '#f59e0b', '#5ce08f', '#22b45a', '#3dc5ff', '#a78bfa', '#6b7280']; // stages 1 to 9
+  const STAGE_NAMES = ['Apprentice I', 'Apprentice II', 'Apprentice III', 'Apprentice IV', 'Guru I', 'Guru II', 'Master', 'Enlightened', 'Burned'];
+  const STAGES = [9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => ({ stage: n, label: STAGE_NAMES[n - 1], color: SHADES[n - 1] }))
+    .concat([{ stage: 0, label: 'Not started', color: 'var(--line)' }]);
   const KINDS = [
-    { key: 'radical', label: 'Radicals', cls: 'rad' },
-    { key: 'kanji', label: 'Kanji', cls: 'kan' },
-    { key: 'vocabulary', label: 'Vocabulary', cls: 'voc' },
+    { key: 'radical', label: 'Radicals', cls: 'rad', one: 'radical', many: 'radicals' },
+    { key: 'kanji', label: 'Kanji', cls: 'kan', one: 'kanji', many: 'kanji' },
+    { key: 'vocabulary', label: 'Vocabulary', cls: 'voc', one: 'word', many: 'words' },
   ];
 
-  function stageKey(a) {
-    if (!a || !a.data.unlocked_at || !(a.data.srs_stage >= 1)) return 'new';
-    const s = a.data.srs_stage;
-    return s <= 4 ? 'apprentice' : s <= 6 ? 'guru' : s === 7 ? 'master' : s === 8 ? 'enlightened' : 'burned';
+  /** The SRS stage an item is at (0 when locked or waiting for its lesson). */
+  function stageOf(a) {
+    if (!a || !a.data.unlocked_at || !(a.data.srs_stage >= 1)) return 0;
+    return Math.min(9, a.data.srs_stage);
   }
 
   /** subs: every subject of the level; assignmentFor(subjectId) gives its assignment or null. */
   function levelProgress(level, subs, assignmentFor) {
     const rows = KINDS.map((k) => {
       const list = subs.filter((s) => !s.data.hidden_at && (k.key === 'vocabulary' ? (s.object === 'vocabulary' || s.object === 'kana_vocabulary') : s.object === k.key));
-      const counts = { burned: 0, enlightened: 0, master: 0, guru: 0, apprentice: 0, new: 0 };
-      list.forEach((s) => { counts[stageKey(assignmentFor(s.id))]++; });
-      return { kind: k, total: list.length, counts, atGuru: counts.guru + counts.master + counts.enlightened + counts.burned };
+      const counts = new Array(10).fill(0);
+      list.forEach((s) => { counts[stageOf(assignmentFor(s.id))]++; });
+      let atGuru = 0;
+      for (let n = 5; n <= 9; n++) atGuru += counts[n];
+      return { kind: k, total: list.length, counts, atGuru };
     }).filter((r) => r.total);
     if (!rows.length) return '';
 
+    // Hovering (or focusing) a segment shows its stage in a small popup, drawn with CSS from data-tip.
     const bar = (r) => {
-      const segs = STAGES.filter((s) => r.counts[s.key]).map((s) => `<i style="width:${r.counts[s.key] / r.total * 100}%;background:${s.color}" title="${esc(s.label)}: ${r.counts[s.key]}"></i>`).join('');
-      const label = STAGES.filter((s) => r.counts[s.key]).map((s) => `${s.label} ${r.counts[s.key]}`).join(', ');
-      return `<div class="lp-bar" role="img" aria-label="${esc(r.kind.label)}: ${esc(label)}">${segs}${r.kind.key === 'kanji' ? '<b class="lp-mark" style="left:90%" title="90% of kanji at Guru levels up"></b>' : ''}</div>`;
+      const segs = STAGES.filter((st) => r.counts[st.stage]).map((st) => {
+        const n = r.counts[st.stage];
+        const tip = `${st.label} · ${n} ${n === 1 ? r.kind.one : r.kind.many}`;
+        return `<i tabindex="0" role="img" aria-label="${esc(tip)}" data-tip="${esc(tip)}" style="width:${n / r.total * 100}%;background:${st.color}"></i>`;
+      }).join('');
+      return `<div class="lp-bar">${r.kind.key === 'kanji' ? '<b class="lp-mark" aria-hidden="true"></b>' : ''}${segs}</div>`;
     };
     const kanji = rows.find((r) => r.kind.key === 'kanji');
     const need = kanji ? Math.ceil(kanji.total * 0.9) : 0;
@@ -61,8 +64,7 @@
       ${rows.map((r) => `<div class="lp-row">
         <div class="lp-head"><span class="lp-type ${r.kind.cls}"><i></i>${esc(r.kind.label)}</span><span class="lp-count">${r.atGuru} of ${r.total} at Guru or above</span></div>
         ${bar(r)}</div>`).join('')}
-      <div class="lp-legend">${STAGES.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('')}</div>
-      ${kanji ? `<p class="muted lp-note">You need ${need} kanji at Guru or above to level up (the dark mark). Radicals and vocabulary do not count toward it.</p>` : ''}</div>`;
+      ${kanji ? `<p class="muted lp-note">You need ${need} kanji at Guru or above to level up: that is everything left of the dark mark. Hover over a segment to see its stage.</p>` : '<p class="muted lp-note">Hover over a segment to see its stage.</p>'}</div>`;
   }
 
   // ---------------------------------------------------------------- critical condition
@@ -107,5 +109,5 @@
     return `<div class="panel nums"><h2>Your numbers</h2><div class="cards">${cards.join('')}</div>${note}</div>`;
   }
 
-  root.Dash = { levelProgress, critical, numbers, STAGES };
+  root.Dash = { levelProgress, critical, numbers, STAGES, SHADES, STAGE_NAMES };
 })(window);

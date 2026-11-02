@@ -16,7 +16,7 @@
   ];
   const STAGE_SHORT = ['A1', 'A2', 'A3', 'A4', 'G1', 'G2', 'Master', 'Enlight.', 'Burned'];
   const STAGE_LONG = ['Apprentice I', 'Apprentice II', 'Apprentice III', 'Apprentice IV', 'Guru I', 'Guru II', 'Master', 'Enlightened', 'Burned'];
-  const STAGE_COLOR = ['#ffd23f', '#ffd23f', '#ffd23f', '#ffd23f', '#5ce08f', '#5ce08f', '#3dc5ff', '#a78bfa', '#6b7280'];
+  const STAGE_COLOR = Dash.SHADES; // the same shade per stage as the dashboard bars
 
   const read = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
   const write = (k, v) => { try { localStorage.setItem(k, String(v)); } catch (e) { /* ignore */ } };

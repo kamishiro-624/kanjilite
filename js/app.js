@@ -139,6 +139,16 @@
     </div>`;
   }
 
+  /** Buttons that open the item on WaniKani and on Jisho, each in a new tab. */
+  function externalLinks(s) {
+    const l = Search.links(s);
+    const a = (href, text) => `<a class="ext-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${text}<span aria-hidden="true"> ↗</span><span class="sr-only"> (opens in a new tab)</span></a>`;
+    const parts = [];
+    if (l.wanikani) parts.push(a(l.wanikani, 'Open on WaniKani'));
+    if (l.jisho) parts.push(a(l.jisho, 'Open on Jisho'));
+    return parts.length ? `<div class="ext-links">${parts.join('')}</div>` : '';
+  }
+
   /** Meanings, readings, mnemonics, sentences and relations for one subject. */
   function renderInfo(s, related, opts) {
     const d = s.data;
@@ -218,7 +228,7 @@
       if (!s) throw new Error('Subject not found');
       const relIds = [].concat(s.data.component_subject_ids || [], (s.data.amalgamation_subject_ids || []).slice(0, 30));
       const related = await api.getSubjects(relIds);
-      openModal(hero(s) + `<div class="info-body">${renderInfo(s, related)}</div>`);
+      openModal(hero(s) + externalLinks(s) + `<div class="info-body">${renderInfo(s, related)}</div>`);
     } catch (e) {
       openModal(`<p class="error">${esc(e.message)}</p>`);
     }
@@ -229,7 +239,10 @@
   });
 
   // ---------- settings ----------
-  const setSessionSize = (v) => localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
+  const setSessionSize = (v) => {
+    localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
+    window.dispatchEvent(new Event('kl-settings')); // screens showing a setting keep in step with it
+  };
   const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v))));
 
   const bindSel = (id, fn) => UI.bindSelect($('#' + id).closest('[data-select]'), fn);
@@ -415,7 +428,7 @@
     $('#nav').hidden = !api.token;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', (a.dataset.nav || 'home') === name));
     if (!api.token) return loginView();
-    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView };
+    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView, search: searchView };
     (views[name] || homeView)(my, parts[1]).catch((err) => fail(err, my));
   }
   window.addEventListener('hashchange', route);
@@ -610,13 +623,26 @@
 
     // Keep it current: when data changes, once a half-minute (reviews fall due with time), and a quiet sync every few minutes.
     onUserChange = () => { draw(true); drawProgress(); };
+    // The review length can also be changed in Settings, so keep the box on this screen in step with it.
+    const onSettings = () => { const st = $('#h-size'); if (st) UI.setStepper(st.closest('[data-stepper]'), settings.sessionSize); };
+    window.addEventListener('kl-settings', onSettings);
     const unsub = Local.subscribe(redraw);
     const tick = setInterval(() => { if (document.visibilityState === 'visible') draw(); }, 30000);
     const sync = setInterval(() => { if (document.visibilityState === 'visible') Local.refresh({ minAge: 4 * 60000 }).catch(syncFailed); }, 60000);
-    cleanup = () => { clearInterval(tick); clearInterval(sync); unsub(); onUserChange = null; };
+    cleanup = () => { clearInterval(tick); clearInterval(sync); unsub(); onUserChange = null; window.removeEventListener('kl-settings', onSettings); };
 
     // Send anything waiting, in the background.
     if (api.pending().length || api.pendingStarts().length) flushBg().then(() => draw());
+  }
+
+  // ---------- search ----------
+  async function searchView(my, arg) {
+    loading('Loading…');
+    await ensureLocal();
+    if (my !== routeSeq) return;
+    let query = '';
+    try { query = decodeURIComponent(arg || ''); } catch (e) { query = arg || ''; }
+    SearchView.mount({ el: app, query, tile, toast, syncFailed, setCleanup: (fn) => { cleanup = fn; } });
   }
 
   // ---------- stats ----------

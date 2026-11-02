@@ -180,8 +180,13 @@
       else if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
     });
     el.addEventListener('click', (e) => { const b = e.target.closest('.step-btn'); if (b && !b.disabled) bump(Number(b.dataset.d)); });
+    // Lets other code move the number (a setting changed elsewhere) without it counting as a change made here.
+    el._setStepper = (v) => { cur = Math.max(min, Math.min(max, Math.round(Number(v) || 0))); if (document.activeElement !== input) input.value = String(cur); refresh(); };
     refresh();
   }
+
+  /** Show a new value in a stepper that was set up with bindStepper. */
+  function setStepper(el, value) { if (el && el._setStepper) el._setStepper(value); }
 
   // ---------- switch (a checkbox drawn with CSS) ----------
   function switchHTML(id, checked, text, hint) {
@@ -222,7 +227,7 @@
 
   root.UI = {
     selectHTML, bindSelect, closeSelect,
-    stepperHTML, bindStepper,
+    stepperHTML, bindStepper, setStepper,
     switchHTML,
     confirm: confirmDialog,
     anyDialogOpen: () => !!document.querySelector('dialog[open]'),

@@ -265,6 +265,34 @@
       }
     },
 
+    // ---- searching across levels ----
+
+    /** Levels whose subjects are saved on this device, sorted. */
+    downloadedLevels() { return (meta.levels || []).slice().sort((x, y) => x - y); },
+
+    /** Every subject saved on this device (all levels downloaded so far). */
+    async allSubjects() {
+      let subs = [];
+      try { subs = (await api.db.all('subjects')).map((r) => r.s); } catch (e) { /* storage unavailable */ }
+      if (!subs.length) subs = [...api.subjectCache.values()]; // private mode: this visit's memory copy
+      subs.forEach((x) => api.subjectCache.set(x.id, x));
+      return subs;
+    },
+
+    /** Download the subjects of the given levels (a few levels per request). onProgress(doneLevels, totalLevels). */
+    async downloadLevels(levels, onProgress) {
+      const todo = levels.filter((l) => !Local.levelDone(l));
+      let done = 0;
+      for (let i = 0; i < todo.length; i += LEVEL_CHUNK) {
+        const part = todo.slice(i, i + LEVEL_CHUNK);
+        const subs = await api.list(`/subjects?levels=${part.join(',')}`);
+        await api.putSubjects(subs);
+        await Local._markLevels(part);
+        done += part.length;
+        if (onProgress) onProgress(done, todo.length);
+      }
+    },
+
     // ---- writes that came back from WaniKani, or happened locally and are on their way ----
 
     /** An assignment as WaniKani now has it (after a review, a lesson start, or a refused write). */
