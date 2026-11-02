@@ -474,6 +474,11 @@
     };
     let shown = '';
     let progressHtml = '';
+    let numbersHtml = '';
+    let critHtml = '';
+    Stats.bind(user.id);
+    // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
+    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null };
 
     function draw(force) {
       if (stale()) return;
@@ -499,6 +504,8 @@
           <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
         </div>
         <div id="lvl-progress">${progressHtml}</div>
+        <div id="dash-numbers">${numbersHtml}</div>
+        <div id="dash-critical">${critHtml}</div>
         <div class="panel session-panel">
           <label for="h-size"><b>Reviews per session</b></label>
           ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
@@ -526,27 +533,80 @@
       };
     }
 
-    // Level progress: 90% of the level's kanji at Guru or above unlocks the next level.
+    // Level progress, split into radicals, kanji and vocabulary and coloured by SRS stage.
+    // 90% of the level's kanji at Guru or above unlocks the next level.
     async function drawProgress() {
       try {
         const lvl = (userCache ? userCache.u : user).level;
         const subs = await Local.levelSubjects(lvl, { background: true });
         if (stale()) return;
+        progressHtml = Dash.levelProgress(lvl, subs, Local.assignmentFor);
         const kanji = subs.filter((x) => x.object === 'kanji' && !x.data.hidden_at);
-        const total = kanji.length;
+        const need = Math.ceil(kanji.length * 0.9);
         const done = kanji.filter((x) => { const a = Local.assignmentFor(x.id); return a && a.data.srs_stage >= 5; }).length;
-        const need = Math.ceil(total * 0.9);
-        progressHtml = `<div class="panel"><h2>Level ${lvl} progress</h2>
-          <div class="meter" role="img" aria-label="${done} of ${need} kanji needed"><i style="width:${Math.min(100, Math.round(done / Math.max(total, 1) * 100))}%"></i><b style="left:90%"></b></div>
-          <p class="muted" style="margin:0">${done} of ${total} kanji at Guru or above. You need ${need} to level up.</p></div>`;
+        X.progress = need ? { fraction: Math.min(1, done / need) } : null;
         const box = $('#lvl-progress');
         if (box) box.innerHTML = progressHtml;
       } catch (e) { /* progress is a nice-to-have */ }
+      paintExtras();
+    }
+
+    // "Your numbers" and "Critical condition".
+    function paintExtras() {
+      if (stale()) return;
+      const u = userCache ? userCache.u : user;
+      const lvl = u.level;
+      const now = Date.now();
+      const counts = Stats.dayCounts(X.hist);
+      const streak = Stats.streakInfo(counts, now);
+      const ls = Stats.levelStats(X.lp || [], lvl, now);
+      let basis = localStorage.getItem('kl_pace_basis') || 'all';
+      const pace = Stats.paceFor(ls.done, basis, Number(localStorage.getItem('kl_pace_custom')) || 12);
+      const est = X.lp ? Stats.estimate({ level: lvl, target: lvl + 1, pace, elapsedDays: ls.elapsedDays, progress: X.progress ? X.progress.fraction : null, now }) : null;
+      const all = Local.allAssignments().filter((a) => !a.data.hidden && a.data.srs_stage >= 1);
+      if (X.rs && !X.rsSummary) X.rsSummary = Stats.summarizeReviewStats(X.rs.rows);
+      const ans = X.rsSummary ? X.rsSummary.answers : null;
+      numbersHtml = Dash.numbers({
+        user: u, level: lvl, streak, haveHistory: !!(X.hist && X.hist.n), ls, pace, est,
+        reviewsToday: streak.today, bestDay: X.hist && X.hist.n ? Math.max.apply(null, [0].concat(Object.keys(counts).map((k) => counts[k]))) : 0,
+        burned: all.filter((a) => a.data.srs_stage === 9).length, started: all.length,
+        accuracy: ans && ans.c + ans.i ? Math.round(ans.c / (ans.c + ans.i) * 1000) / 10 : null, answers: ans ? ans.c + ans.i : 0,
+      });
+      const nb = $('#dash-numbers'); if (nb) nb.innerHTML = numbersHtml;
+
+      if (!X.rs) { critHtml = Dash.critical(null, 0, 75, tile); }
+      else {
+        const live = (id) => { const a = Local.assignmentFor(id); return !!a && !a.data.hidden && a.data.srs_stage >= 1 && a.data.srs_stage < 9; };
+        const cr = Stats.criticalItems(X.rs.rows, live, { below: 75, limit: 8 });
+        const missing = cr.items.map((x) => x.id).filter((id) => !X.subs.has(id));
+        if (missing.length) {
+          api.getSubjects(missing, { background: true }).then((m) => { m.forEach((v, k) => X.subs.set(k, v)); paintExtras(); }).catch(() => {});
+        }
+        const items = cr.items.filter((x) => X.subs.has(x.id)).map((x) => Object.assign({ subject: X.subs.get(x.id) }, x));
+        critHtml = Dash.critical(missing.length && !items.length ? null : items, cr.count, 75, tile);
+      }
+      const cb = $('#dash-critical'); if (cb) cb.innerHTML = critHtml;
+    }
+
+    async function loadExtras() {
+      try {
+        const [lp, hist, rs] = await Promise.all([Stats.savedProgressions(), Stats.savedHistory(), Stats.savedReviewStats()]);
+        if (stale()) return;
+        X.lp = lp ? lp.rows : null; X.hist = hist; X.rs = rs; X.rsSummary = null;
+        paintExtras();
+        if (!lp || Date.now() - lp.at > 5 * 60000) {
+          Stats.fetchProgressions({ background: true }).then((rows) => { X.lp = rows; paintExtras(); }).catch(() => {});
+        }
+        if (!rs || Date.now() - rs.at > 30 * 60000) {
+          Stats.syncReviewStats({}).then((r) => { X.rs = r; X.rsSummary = null; paintExtras(); }).catch(() => {});
+        }
+      } catch (e) { /* these widgets are a nice-to-have */ }
     }
 
     const redraw = () => { draw(); drawProgress(); };
     draw(true);
     drawProgress();
+    loadExtras();
 
     // Keep it current: when data changes, once a half-minute (reviews fall due with time), and a quiet sync every few minutes.
     onUserChange = () => { draw(true); drawProgress(); };
@@ -633,6 +693,7 @@
         incorrect_reading_answers: item.incorrect.reading,
         created_at: new Date().toISOString(),
       });
+      Stats.noteReview(); // counted for the streak and the "reviews today" figure
       flushBg(); // stays queued if it fails, retried later
     }
 

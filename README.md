@@ -4,7 +4,9 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
 
 ## Features
 
-- **Dashboard**: available lessons and reviews, a 24-hour review forecast, and progress toward leveling up (90% of the level's kanji at Guru or above).
+- **Dashboard**: available lessons and reviews, a 24-hour review forecast, and level progress split into radicals, kanji and vocabulary, each bar colored by SRS stage (the dark mark on the kanji bar is the 90% needed to level up). Also:
+  - **Critical condition**: the items you answer correctly less than 75% of the time (at least four answers, not burned), worst first. Tap one to open it.
+  - **Your numbers**: review streak, time on the current level compared with your average, the date you can expect the next level, reviews today, burned items, answer accuracy and time on WaniKani. The streak counts reviews done in this app and, once you have downloaded your review history on the Stats page, everything before too.
 - **Reviews**: meaning and reading questions, romaji typed as you go turns into hiragana, close-match typo tolerance, your own synonyms, blacklist and whitelist answers, on'yomi/kun'yomi hints, mnemonics after every answer, and "Wrap up".
   - **Undo answer** (button or Ctrl/Cmd+Z) takes back the answer you just submitted, right or wrong, until you press Next.
   - **Reading and meaning back to back**: after a correct answer, the same item's other question comes next. Optionally always ask meaning first or reading first.
@@ -14,7 +16,7 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
   - **Saves as you go**: each finished item is sent to WaniKani as soon as you move to the next card, and half-finished items and your place in the session are saved after every answer. Close the tab, come back, and Reviews resumes where you stopped.
 - **Lessons**: batches (3 to 10 items) with meanings, readings, mnemonics, example sentences and components, followed by a quiz. Items are started on WaniKani when the quiz is finished.
 - **Level browser**: every radical, kanji and vocabulary item of any level, colored by SRS stage, with a detail view for each. Each kanji shows its progress toward Guru I (0/5 to 4/5), then a check mark once it has passed it.
-- **Stats**: an estimate of when you will reach a level you choose, based on how long your finished levels took (all of them, the last 10 or 5, a figure of your own, or the fastest possible), with a quicker-to-slower range and a date for each level on the way. Also summary numbers, answer accuracy by meaning, reading and item type, the items you miss most, and interactive graphs: time per level, level over time, reviews/accuracy/mistakes/lessons by day, week or month, reviews by hour, and items by SRS stage. Every graph has editable axes: type a range, pick the measure, or drag to zoom (double-click resets). The review graphs need your review history, which is downloaded only when you ask for it, counted into daily totals and kept in the browser.
+- **Stats**: an estimate of when you will reach a level you choose, based on how long your finished levels took (all of them, the last 10 or 5, a figure of your own, or the fastest possible), with a quicker-to-slower range and a date for each level on the way. Also summary numbers, answer accuracy by meaning, reading and item type, the items you miss most, and interactive graphs: time per level, level over time, reviews/accuracy/mistakes/lessons by day, week or month, reviews by hour, and items by SRS stage. A calendar heatmap shows the reviews done on each day of the last 12 months or of any year with data. Every graph has editable axes: type a range, pick the measure, or drag to zoom (double-click resets). The review graphs need your review history, which is downloaded only when you ask for it, counted into daily totals and kept in the browser.
 - **Offline-tolerant**: finished reviews and started lessons are queued in the browser and retried until WaniKani accepts them. Once your data has been downloaded, the dashboard, reviews, lessons and level browser all open without a connection.
 - **Settings** in two tabs: *General* (theme, a Lessons section, account) and *Reviews* (session length, question order, wrong-answer lock, display).
 - **Wrong-answer lock**: after a wrong answer "Next" stays locked briefly (1 second by default, configurable) so an extra Enter press can't skip the correction. Right and wrong answers differ in color, icon, motion and a text banner.
@@ -61,10 +63,12 @@ js/
   ui/
     ui.js             CSS-styled select, number stepper, switch and confirm dialog
     charts.js         SVG charts with hover values, drag-to-zoom and editable axes
+    heatmap.js        Calendar heatmap of reviews per day
+    dashboard.js      Dashboard widgets: level progress by type, critical condition, your numbers
     statsview.js      The Stats screen
 ```
 
-Scripts load in this order (see `index.html`): `kana`, `check`, `api`, `store`, `stats`, `ui`, `charts`, `statsview`, `app`.
+Scripts load in this order (see `index.html`): `kana`, `check`, `api`, `store`, `stats`, `ui`, `charts`, `heatmap`, `dashboard`, `statsview`, `app`.
 
 ## Notes and limits
 

@@ -236,6 +236,73 @@
     return bucketDays(days, bucket, true);
   }
 
+
+  // ---------------------------------------------------------------- reviews done in this app, and streaks
+
+  const LOCAL_DAYS = 'kl_rev_days';
+  const readLocalDays = () => { try { return JSON.parse(localStorage.getItem(LOCAL_DAYS) || '{}') || {}; } catch (e) { return {}; } };
+
+  /** Count one finished review on today's date. Lets the streak work without downloading the whole history. */
+  function noteReview(now) {
+    try {
+      const d = readLocalDays();
+      const t = now || Date.now();
+      const k = dayKey(new Date(t));
+      d[k] = (d[k] || 0) + 1;
+      const cutoff = dayKey(new Date(t - 420 * DAY));
+      Object.keys(d).forEach((x) => { if (x < cutoff) delete d[x]; });
+      localStorage.setItem(LOCAL_DAYS, JSON.stringify(d));
+    } catch (e) { /* storage unavailable: no streak from local counts */ }
+  }
+
+  /** Reviews per day, from the downloaded history and from what this app has counted itself (the larger number wins). */
+  function dayCounts(history) {
+    const out = {};
+    if (history && history.days) Object.keys(history.days).forEach((k) => { out[k] = history.days[k][0]; });
+    const local = readLocalDays();
+    Object.keys(local).forEach((k) => { out[k] = Math.max(out[k] || 0, local[k]); });
+    return out;
+  }
+
+  /**
+   * Days in a row with at least one review. A streak is still alive on a day you have not reviewed yet,
+   * so it counts back from yesterday until you review today.
+   */
+  function streakInfo(counts, now) {
+    const t = now || Date.now();
+    const today = new Date(t);
+    const key = (d) => dayKey(d);
+    const prevDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+    const has = (d) => (counts[key(d)] || 0) > 0;
+    let d = has(today) ? today : prevDay(today);
+    let current = 0;
+    while (has(d)) { current++; d = prevDay(d); }
+    const keys = Object.keys(counts).filter((k) => counts[k] > 0).sort();
+    let best = 0, run = 0, prev = null;
+    keys.forEach((k) => {
+      const dt = keyToDate(k);
+      run = prev && key(prevDay(dt)) === prev ? run + 1 : 1;
+      prev = k;
+      if (run > best) best = run;
+    });
+    return { current, best, active: keys.length, today: counts[key(today)] || 0, doneToday: has(today) };
+  }
+
+  /** Items under a score, worst first. rows are the review-statistics rows; ok(id) says whether an item still counts. */
+  function criticalItems(rows, ok, opts) {
+    const o = Object.assign({ below: 75, minAnswers: 4, limit: 100 }, opts || {});
+    const out = [];
+    Object.keys(rows).forEach((id) => {
+      const r = rows[id];
+      const total = r[1] + r[2] + r[3] + r[4];
+      if (total < o.minAnswers || !ok(Number(id))) return;
+      const p = (r[1] + r[3]) / total * 100;
+      if (p < o.below) out.push({ id: Number(id), pct: p, wrong: r[2] + r[4], total });
+    });
+    out.sort((a, b) => a.pct - b.pct || b.wrong - a.wrong);
+    return { count: out.length, items: out.slice(0, o.limit) };
+  }
+
   // ---------------------------------------------------------------- pace and estimates
 
   /** Finished levels (days from unlocking to passing) and how long the current level has been going. */
@@ -337,6 +404,7 @@
     savedReviewStats, syncReviewStats, summarizeReviewStats,
     savedHistory, syncHistory,
     // maths
+    noteReview, dayCounts, streakInfo, criticalItems,
     normalizeProgressions, levelStats, paceFor, estimate, bucketDays, bucketTimes, addReviews, emptyHistory, dayKey, keyToDate,
     DAY,
   };

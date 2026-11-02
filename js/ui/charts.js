@@ -245,7 +245,9 @@
       });
       view.xTicks.forEach((t) => {
         const x = sx(t.x);
-        g += `<line class="grid v" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${M.t}" y2="${M.t + ph}"/><text class="tick" x="${x.toFixed(1)}" y="${M.t + ph + 16}" text-anchor="middle">${esc(t.label)}</text>`;
+        const half = String(t.label).length * 3.4; // keep the first and last labels inside the drawing
+        const anchor = x + half > width - 2 ? 'end' : x - half < 2 ? 'start' : 'middle';
+        g += `<line class="grid v" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${M.t}" y2="${M.t + ph}"/><text class="tick" x="${(anchor === 'end' ? Math.min(x, width - 2) : x).toFixed(1)}" y="${M.t + ph + 16}" text-anchor="${anchor}">${esc(t.label)}</text>`;
       });
       g += `<line class="axis-line" x1="${M.l}" x2="${M.l + pw}" y1="${M.t + ph}" y2="${M.t + ph}"/><line class="axis-line" x1="${M.l}" x2="${M.l}" y1="${M.t}" y2="${M.t + ph}"/>`;
       if (data.yLabel) g += `<text class="axis-title" x="${M.l}" y="12">${esc(data.yLabel)}</text>`;

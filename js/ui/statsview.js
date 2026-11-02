@@ -81,6 +81,7 @@
       <section class="panel" id="st-rs"><h2>Review statistics</h2><div id="st-rs-body"><p class="muted">Loading…</p></div></section>
 
       <section class="panel" id="st-hist"></section>
+      <div id="g-heat"></div>
       <div id="g-rev"></div>
       <div id="g-hour"></div>
       <div id="g-srs"></div>
@@ -156,6 +157,8 @@
       const c = [];
       const { lvl, ls } = compute();
       c.push(card(`Level ${lvl}`, ls.since ? `${span(ls.elapsedDays)} on this level` : '', 'Current'));
+      const sk = Stats.streakInfo(Stats.dayCounts(D.hist));
+      if (sk.best) c.push(card(plural(sk.current, 'day'), 'review streak', `Longest: ${sk.best}`));
       if (D.rows) {
         const all = Stats.paceFor(ls.done, 'all');
         c.push(card(all.n ? `${round1(all.mean)} days` : '–', 'per level, on average', all.n ? `over ${plural(all.n, 'level')}` : 'no finished levels yet'));
@@ -398,6 +401,19 @@
         return { xType: 'date', yZero: false, xInteger: false, xLabel: 'Date', yLabel: 'Level', yFmt: (v) => String(Math.round(v * 10) / 10), series, markers: [{ x: now, label: 'Today' }], empty: { text: 'Your level history is empty so far.' } };
       },
     }, { dependsOnEstimate: true });
+
+    // Calendar heatmap of reviews done.
+    {
+      const heat = Heatmap.create($('#g-heat'), {
+        id: 'c-heat', title: 'Reviews heatmap', unit: 'review',
+        note: 'One square per day. Darker means more reviews that day.',
+        counts: () => (D.hist && D.hist.n ? Stats.dayCounts(D.hist) : null),
+        empty: () => (D.histState === 'running' ? { text: 'Downloading your review history…' } : { text: 'The heatmap needs your review history.', action: { label: 'Download review history', name: 'history' } }),
+        onAction: (name) => { if (name === 'history') runHistory(); },
+      });
+      heat.dependsOnHistory = true;
+      charts.push(heat);
+    }
 
     // 3. reviews, accuracy, mistakes, lessons over time
     const RANGES = [
