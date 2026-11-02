@@ -1,4 +1,5 @@
-/* Minimal WaniKani API v2 client: throttled requests, pagination, persistent subject cache, review queue. */
+/* Minimal WaniKani API v2 client: throttled requests, pagination, IndexedDB storage, background upload queues.
+   The local mirror of your WaniKani data (sync, queries) lives in store.js and sits on top of this file. */
 (function (root) {
   'use strict';
 
@@ -6,6 +7,8 @@
   const REVISION = '20170710';
   const TOKEN_KEY = 'kl_token';
   const PENDING_KEY = 'kl_pending_reviews';
+  const STARTS_KEY = 'kl_pending_starts'; // lessons started locally, waiting to be sent
+  const BLOCK_KEY = 'kl_blocked_until';   // shared across tabs: when WaniKani last told us to back off
 
   // WaniKani allows 60 requests per minute per token. We stay under that on our own, counting requests
   // in localStorage so the budget is shared across tabs and page reloads. Background work (sending
@@ -14,13 +17,12 @@
   // queued behind the review uploads.
   const WINDOW = 60000;
   const CAP_INTERACTIVE = 54;
-  const CAP_BACKGROUND = 30;
+  const CAP_BACKGROUND = 40;
   const LOG_KEY = 'kl_req_log';
   const MAX_429_RETRIES = 4;
 
-  const SUBJECT_TTL = 14 * 24 * 3600 * 1000; // subjects almost never change
-  const SYNONYM_TTL = 10 * 60 * 1000;
   const DB_NAME = 'kanjilite';
+  const DB_VERSION = 2;
   const STORE = 'subjects';
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -38,7 +40,16 @@
   }
 
   // ---- rate limiter ----
-  let blockedUntil = 0; // set when WaniKani answers 429; everything waits
+  let blockedUntil = 0; // set when WaniKani answers 429 (or says the budget is used up); everything waits
+  function getBlocked() {
+    let v = blockedUntil;
+    try { v = Math.max(v, Number(localStorage.getItem(BLOCK_KEY)) || 0); } catch (e) { /* ignore */ }
+    return v;
+  }
+  function setBlocked(t) {
+    blockedUntil = Math.max(blockedUntil, t);
+    try { localStorage.setItem(BLOCK_KEY, String(blockedUntil)); } catch (e) { /* ignore */ }
+  }
   let interactiveWaiting = 0; // screens currently waiting for a request slot
 
   function readLog(now) {
@@ -66,8 +77,9 @@
     for (;;) {
       const now = Date.now();
       let wait;
-      if (now < blockedUntil) {
-        wait = blockedUntil - now;
+      const blocked = getBlocked();
+      if (now < blocked) {
+        wait = blocked - now;
       } else if (background && interactiveWaiting > 0) {
         wait = 150; // let the screen that is waiting go first
       } else {
@@ -81,61 +93,113 @@
     }
   }
 
-  // ---- persistent subject cache (IndexedDB, falls back to memory only) ----
+  // ---- IndexedDB: subjects, assignments, study materials and sync bookkeeping (memory only if unavailable) ----
   let dbPromise = null;
   function openDb() {
     if (dbPromise) return dbPromise;
     dbPromise = new Promise((resolve) => {
       try {
-        const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
-        req.onsuccess = () => resolve(req.result);
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (ev) => {
+          const db = req.result;
+          // Version 1 cached subjects without a level index and without a sync timestamp; start clean.
+          if (ev.oldVersion < 2 && db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' }).createIndex('lvl', 'lvl');
+          if (!db.objectStoreNames.contains('assignments')) db.createObjectStore('assignments', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('materials')) db.createObjectStore('materials', { keyPath: 'id' });
+          if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+        };
+        req.onsuccess = () => {
+          req.result.onversionchange = () => { req.result.close(); dbPromise = null; };
+          resolve(req.result);
+        };
         req.onerror = () => resolve(null);
         req.onblocked = () => resolve(null);
       } catch (e) { resolve(null); }
     });
     return dbPromise;
   }
-  async function idbGetMany(ids) {
-    const db = await openDb();
-    if (!db || !ids.length) return [];
-    return new Promise((resolve) => {
-      const out = [];
-      try {
-        const tx = db.transaction(STORE, 'readonly');
-        const st = tx.objectStore(STORE);
-        ids.forEach((id) => {
-          const r = st.get(id);
-          r.onsuccess = () => { if (r.result && Date.now() - r.result.t < SUBJECT_TTL) out.push(r.result.s); };
-        });
-        tx.oncomplete = () => resolve(out);
-        tx.onerror = tx.onabort = () => resolve(out);
-      } catch (e) { resolve([]); }
-    });
-  }
-  async function idbPutMany(items) {
-    const db = await openDb();
-    if (!db || !items.length) return;
-    try {
-      const tx = db.transaction(STORE, 'readwrite');
-      const st = tx.objectStore(STORE);
-      const t = Date.now();
-      items.forEach((s) => st.put({ id: s.id, t, s }));
-    } catch (e) { /* cache is optional */ }
-  }
-  async function idbClear() {
-    const db = await openDb();
-    if (!db) return;
-    try { db.transaction(STORE, 'readwrite').objectStore(STORE).clear(); } catch (e) { /* ignore */ }
-  }
+
+  /** Small promise wrappers. Every one resolves (never rejects) so a broken IndexedDB just means "no cache". */
+  const idb = {
+    async all(store) {
+      const db = await openDb();
+      if (!db) return [];
+      return new Promise((resolve) => {
+        try {
+          const r = db.transaction(store, 'readonly').objectStore(store).getAll();
+          r.onsuccess = () => resolve(r.result || []);
+          r.onerror = () => resolve([]);
+        } catch (e) { resolve([]); }
+      });
+    },
+    async byIndex(store, index, value) {
+      const db = await openDb();
+      if (!db) return [];
+      return new Promise((resolve) => {
+        try {
+          const r = db.transaction(store, 'readonly').objectStore(store).index(index).getAll(IDBKeyRange.only(value));
+          r.onsuccess = () => resolve(r.result || []);
+          r.onerror = () => resolve([]);
+        } catch (e) { resolve([]); }
+      });
+    },
+    async getMany(store, keys) {
+      const db = await openDb();
+      if (!db || !keys.length) return [];
+      return new Promise((resolve) => {
+        const out = [];
+        try {
+          const tx = db.transaction(store, 'readonly');
+          const st = tx.objectStore(store);
+          keys.forEach((k) => { const r = st.get(k); r.onsuccess = () => { if (r.result) out.push(r.result); }; });
+          tx.oncomplete = () => resolve(out);
+          tx.onerror = tx.onabort = () => resolve(out);
+        } catch (e) { resolve([]); }
+      });
+    },
+    async put(store, items) {
+      const db = await openDb();
+      if (!db || !items.length) return;
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction(store, 'readwrite');
+          const st = tx.objectStore(store);
+          items.forEach((x) => st.put(x));
+          tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
+        } catch (e) { resolve(); }
+      });
+    },
+    async clear(stores) {
+      const db = await openDb();
+      if (!db) return;
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction(stores, 'readwrite');
+          stores.forEach((s) => tx.objectStore(s).clear());
+          tx.oncomplete = tx.onerror = tx.onabort = () => resolve();
+        } catch (e) { resolve(); }
+      });
+    },
+  };
 
   let flushing = null;
   const inflight = new Map();
 
+  const readQ = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch (e) { return []; } };
+  const writeQ = (key, list) => {
+    try {
+      if (list.length) localStorage.setItem(key, JSON.stringify(list));
+      else localStorage.removeItem(key);
+    } catch (e) { /* storage full or blocked */ }
+  };
+
   const api = {
     subjectCache: new Map(),
-    synonymCache: new Map(), // subject id -> { t, list }
     onWait: null,            // optional hook: called with the wait in ms when a screen has to pause
+    onAssignment: null,      // hook: called with every assignment WaniKani sends back after a write
+    onSubjectsStored: null,  // hook: called whenever subjects were saved to the browser
+    db: idb,
 
     get token() { return localStorage.getItem(TOKEN_KEY) || ''; },
     set token(v) {
@@ -175,17 +239,24 @@
           throw new ApiError('Could not reach WaniKani. Check your connection and try again.', 0);
         }
 
+        // When WaniKani exposes its rate-limit headers, trust them over our own count: other apps, scripts
+        // and the official site share the same per-token budget. Stop just short of the limit.
+        const remaining = res.headers.get('RateLimit-Remaining');
+        const resetHdr = Number(res.headers.get('RateLimit-Reset'));
+        if (remaining !== null && Number(remaining) <= 1 && Number.isFinite(resetHdr) && resetHdr * 1000 > Date.now()) {
+          setBlocked(resetHdr * 1000 + 300);
+        }
+
         if (res.status === 429) {
           // The limit is per minute, so a short retry is pointless: wait for the window to reset.
-          const reset = Number(res.headers.get('RateLimit-Reset')); // epoch seconds, when exposed
-          let wait = Number.isFinite(reset) && reset * 1000 > Date.now()
-            ? reset * 1000 - Date.now() + 500
+          let wait = Number.isFinite(resetHdr) && resetHdr * 1000 > Date.now()
+            ? resetHdr * 1000 - Date.now() + 500
             : Math.min(30000, 5000 * 2 ** attempt);
           wait = Math.min(wait, 65000);
-          blockedUntil = Math.max(blockedUntil, Date.now() + wait);
+          setBlocked(Date.now() + wait);
           if (attempt < MAX_429_RETRIES) {
             if (!background && api.onWait) api.onWait(wait);
-            continue; // acquire() at the top of the loop sleeps until blockedUntil
+            continue; // acquire() at the top of the loop sleeps until the block ends
           }
           throw new ApiError('WaniKani is limiting requests right now. Wait a minute and try again.', 429);
         }
@@ -200,97 +271,124 @@
       }
     },
 
-    /** Follow pagination and return every resource in a collection. */
+    /**
+     * Follow pagination and return every resource in a collection. The returned array also carries
+     * `dataUpdatedAt`: the collection's timestamp as of the FIRST page, which is what the next
+     * incremental `updated_after` sync should start from (anything changed while paging is picked up then).
+     * opts.onPage(items, pageNumber) is called as each page arrives.
+     */
     async list(path, opts) {
       const out = [];
       let url = path;
+      let n = 0;
       while (url) {
         const r = await api.request(url, opts);
+        if (n === 0) out.dataUpdatedAt = r.data_updated_at || null;
         out.push(...r.data);
+        if (opts && opts.onPage) opts.onPage(r.data, ++n);
+        else n++;
         url = r.pages && r.pages.next_url;
       }
       return out;
     },
 
-    /** Remember subjects fetched elsewhere (memory and IndexedDB). */
+    /** Remember subjects (memory and IndexedDB). */
     putSubjects(items) {
       items.forEach((s) => api.subjectCache.set(s.id, s));
-      idbPutMany(items);
+      const t = Date.now();
+      if (api.onSubjectsStored) api.onSubjectsStored();
+      return idb.put(STORE, items.map((s) => ({ id: s.id, lvl: s.data && s.data.level, t, s })));
     },
 
-    /** Fetch subjects by id (cached in memory and in the browser). Returns Map(id -> subject). */
-    async getSubjects(ids) {
+    /** Fetch subjects by id: memory, then IndexedDB, then WaniKani. Returns Map(id -> subject). */
+    async getSubjects(ids, opts) {
       const unique = [...new Set(ids)];
       let missing = unique.filter((id) => !api.subjectCache.has(id));
       if (missing.length) {
-        const stored = await idbGetMany(missing);
-        stored.forEach((s) => api.subjectCache.set(s.id, s));
+        const stored = await idb.getMany(STORE, missing);
+        stored.forEach((r) => api.subjectCache.set(r.s.id, r.s));
         missing = missing.filter((id) => !api.subjectCache.has(id));
       }
       for (const part of chunk(missing, 200)) {
-        const items = await api.list('/subjects?ids=' + part.join(','));
-        api.putSubjects(items);
+        const items = await api.list('/subjects?ids=' + part.join(','), opts);
+        await api.putSubjects(items);
       }
       const map = new Map();
       unique.forEach((id) => { if (api.subjectCache.has(id)) map.set(id, api.subjectCache.get(id)); });
       return map;
     },
 
-    /** Custom meaning synonyms the user added. Returns Map(subject_id -> string[]). */
-    async getSynonyms(ids) {
-      const now = Date.now();
-      const unique = [...new Set(ids)];
-      const missing = unique.filter((id) => { const c = api.synonymCache.get(id); return !c || now - c.t > SYNONYM_TTL; });
-      for (const part of chunk(missing, 200)) {
-        const items = await api.list('/study_materials?subject_ids=' + part.join(','));
-        const found = new Map();
-        items.forEach((m) => {
-          if (m.data.meaning_synonyms && m.data.meaning_synonyms.length) found.set(m.data.subject_id, m.data.meaning_synonyms);
-        });
-        part.forEach((id) => api.synonymCache.set(id, { t: now, list: found.get(id) || [] }));
-      }
-      const map = new Map();
-      unique.forEach((id) => { const c = api.synonymCache.get(id); if (c && c.list.length) map.set(id, c.list); });
-      return map;
-    },
-
-    // ---- review queue: finished reviews are stored locally until WaniKani accepts them ----
-    pending() {
-      try { return JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch (e) { return []; }
-    },
-    savePending(list) {
-      if (list.length) localStorage.setItem(PENDING_KEY, JSON.stringify(list));
-      else localStorage.removeItem(PENDING_KEY);
-    },
+    // ---- upload queues: finished reviews and started lessons are stored locally until WaniKani accepts them ----
+    pending() { return readQ(PENDING_KEY); },
+    pendingStarts() { return readQ(STARTS_KEY); },
+    savePending(list) { writeQ(PENDING_KEY, list); },
     queueReview(review) {
       const list = api.pending();
       list.push(review);
-      api.savePending(list);
+      writeQ(PENDING_KEY, list);
     },
-    /** Send queued reviews, paced by the rate limiter. Resolves with how many remain; rejects on transient errors. */
+    queueStart(assignmentId) {
+      const item = { assignment_id: assignmentId, started_at: new Date().toISOString() };
+      const list = api.pendingStarts();
+      if (!list.some((x) => x.assignment_id === assignmentId)) list.push(item);
+      writeQ(STARTS_KEY, list);
+      return item;
+    },
+
+    /** The server's copy of an assignment replaces ours (after a write, or when something was refused). */
+    _takeAssignment(a) {
+      if (a && a.object === 'assignment' && api.onAssignment) api.onAssignment(a);
+    },
+    _reconcile(id) {
+      api.request('/assignments/' + id, { background: true }).then((a) => api._takeAssignment(a)).catch(() => {});
+    },
+
+    async _drain(key, send) {
+      for (;;) {
+        const head = readQ(key)[0];
+        if (!head) break;
+        try {
+          await send(head);
+        } catch (e) {
+          const permanent = e.status >= 400 && e.status < 500 && ![401, 403, 429].includes(e.status);
+          if (!permanent) throw e;
+          console.warn('Dropping an update WaniKani refused:', head, e.message);
+          api._reconcile(head.assignment_id); // our local copy of that item may be out of date
+        }
+        // Re-read the queue: new entries may have been appended while we were waiting.
+        const sig = JSON.stringify(head);
+        const rest = readQ(key);
+        const i = rest.findIndex((x) => JSON.stringify(x) === sig);
+        if (i >= 0) rest.splice(i, 1);
+        writeQ(key, rest);
+      }
+    },
+
+    /** Send queued lessons and reviews, paced by the rate limiter. Resolves with how many remain; rejects on transient errors. */
     flushPending() {
       if (flushing) return flushing;
-      flushing = (async () => {
-        try {
-          for (;;) {
-            const head = api.pending()[0];
-            if (!head) break;
-            try {
-              await api.request('/reviews', { method: 'POST', body: { review: head }, background: true });
-            } catch (e) {
-              const permanent = e.status >= 400 && e.status < 500 && ![401, 403, 429].includes(e.status);
-              if (!permanent) throw e;
-              console.warn('Dropping a review WaniKani refused:', head, e.message);
-            }
-            // Re-read the queue: new reviews may have been appended while we were waiting.
-            const rest = api.pending();
-            rest.shift();
-            api.savePending(rest);
-          }
-        } finally {
-          flushing = null;
+      const run = async () => {
+        let first = null;
+        const jobs = [
+          [STARTS_KEY, async (x) => api._takeAssignment(await api.request(`/assignments/${x.assignment_id}/start`, {
+            method: 'PUT', body: { assignment: { started_at: x.started_at } }, background: true }))],
+          [PENDING_KEY, async (x) => {
+            const r = await api.request('/reviews', { method: 'POST', body: { review: x }, background: true });
+            if (r && r.resources_updated) api._takeAssignment(r.resources_updated.assignment);
+          }],
+        ];
+        for (const [key, send] of jobs) {
+          try { await api._drain(key, send); } catch (e) { first = first || e; }
         }
-        return api.pending().length;
+        if (first) throw first;
+      };
+      // Only one tab sends at a time, otherwise two tabs would submit the same review twice.
+      const locked = (fn) => (root.navigator && navigator.locks
+        ? navigator.locks.request('kl_flush', { ifAvailable: true }, (lock) => (lock ? fn() : null))
+        : fn());
+      flushing = (async () => {
+        try { await locked(run); } finally { flushing = null; }
+        return api.pending().length + api.pendingStarts().length;
       })();
       return flushing;
     },
@@ -298,9 +396,11 @@
     reset() {
       api.token = '';
       api.subjectCache.clear();
-      api.synonymCache.clear();
-      localStorage.removeItem(PENDING_KEY);
-      idbClear();
+      [PENDING_KEY, STARTS_KEY, BLOCK_KEY, 'kl_user', 'kl_session'].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } });
+      try {
+        Object.keys(localStorage).filter((k) => k.startsWith('kl_kanji_total_')).forEach((k) => localStorage.removeItem(k));
+      } catch (e) { /* ignore */ }
+      idb.clear([STORE, 'assignments', 'materials', 'meta']);
     },
   };
 

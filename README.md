@@ -14,10 +14,15 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
   - **Saves as you go**: each finished item is sent to WaniKani as soon as you move to the next card, and half-finished items and your place in the session are saved after every answer. Close the tab, come back, and Reviews resumes where you stopped.
 - **Lessons**: batches (3 to 10 items) with meanings, readings, mnemonics, example sentences and components, followed by a quiz. Items are started on WaniKani when the quiz is finished.
 - **Level browser**: every radical, kanji and vocabulary item of any level, colored by SRS stage, with a detail view for each.
-- **Offline-tolerant**: finished reviews are queued in the browser and retried until WaniKani accepts them.
+- **Offline-tolerant**: finished reviews and started lessons are queued in the browser and retried until WaniKani accepts them. Once your data has been downloaded, the dashboard, reviews, lessons and level browser all open without a connection.
 - **Settings** in two tabs: *General* (theme, a Lessons section, account) and *Reviews* (session length, question order, wrong-answer lock, display).
 - **Wrong-answer lock**: after a wrong answer "Next" stays locked briefly (1 second by default, configurable) so an extra Enter press can't skip the correction. Right and wrong answers differ in color, icon, motion and a text banner.
-- **Rate-limit friendly**: requests are paced below WaniKani's 60 per minute, subjects are cached in the browser, and a 429 response makes the app wait and retry instead of failing. Sending finished reviews runs in the background with a smaller share of the budget and steps aside whenever a screen is waiting, so the dashboard after a session is not held up by uploads.
+- **Rate-limit friendly, with no waiting**: WaniKani allows 60 requests per minute, so KanjiLite keeps a local copy of your data instead of asking for it every time a screen opens.
+  - Assignments, study materials and subjects are downloaded once and saved in the browser. After that only what changed is fetched (`updated_after`), usually one or two requests when the app opens or the tab regains focus.
+  - Review and lesson counts, the 24-hour forecast, the review and lesson queues, level progress and the level browser are computed from that copy, so they open instantly and cost no requests.
+  - Lessons are marked started immediately and finished reviews are queued; both are sent in the background. WaniKani's reply to each upload updates the local copy, so nothing is re-fetched afterwards.
+  - Uploads and syncs run at a lower priority than anything a screen is waiting for, share one request budget across tabs, back off when WaniKani's rate-limit headers say the budget is nearly used, and wait out a 429 instead of failing.
+  - Subjects for your levels are downloaded quietly in the background after your first visit.
 - Light, dark (matte black) or follow-your-device themes. All dropdowns, steppers, switches and confirmations are drawn with CSS rather than native browser controls.
 
 ## Deploy on GitHub Pages
@@ -44,14 +49,17 @@ Treat the token like a password. Anyone who uses KanjiLite on a shared computer 
 | `index.html` | App shell |
 | `style.css` | Styles, light and dark |
 | `app.js` | Routing, dashboard, lessons, reviews, level browser, settings |
-| `api.js` | WaniKani API wrapper: request pacing, 429 handling, pagination, caching (memory + IndexedDB), review queue |
+| `api.js` | WaniKani API wrapper: request pacing, 429 handling, pagination, IndexedDB access, upload queues for reviews and lesson starts |
+| `store.js` | Local copy of your data: first download, incremental sync, and the queries that replace API calls (due reviews, lessons, forecast, level subjects) |
 | `ui.js` | CSS-styled select, number stepper, switch and confirm dialog |
 | `check.js` | Answer checking (meanings with typo tolerance, readings) |
 | `kana.js` | Romaji to hiragana conversion |
 
 ## Notes and limits
 
-- Reviews load in sessions (100 items by default, adjustable) to keep loading fast.
+- Reviews load in sessions (100 items by default, adjustable).
+- The first visit on a device downloads your assignments (a few requests, a few seconds). Changes made elsewhere (the WaniKani website, another app) show up the next time the app syncs: on opening, when the tab regains focus, and every few minutes on the dashboard.
+- Logging out clears the saved copy of your data from the browser.
 - WaniKani only accepts a review once an item's meaning and reading are both answered, so an item is sent when it is finished. Anything unfinished is kept in your browser and resumed instead.
 - Audio, the radical/kanji "wrap-up" extras, undo, burned-item resurrection and the Anki-style statistics of the official site are not included.
 - WaniKani is a trademark of Tofugu. This project is not affiliated with or endorsed by WaniKani or Tofugu.

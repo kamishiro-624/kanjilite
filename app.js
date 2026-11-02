@@ -297,14 +297,14 @@
     $('#s-stage').onchange = (e) => localStorage.setItem('kl_show_stage', e.target.checked ? '1' : '0');
     $('#s-srstoast').onchange = (e) => localStorage.setItem('kl_srs_toast', e.target.checked ? '1' : '0');
     $('#s-logout').onclick = async () => {
-      const left = api.pending().length;
+      const left = api.pending().length + api.pendingStarts().length;
       const ok = await UI.confirm({
         title: 'Log out?',
-        message: left ? `You have ${left} finished review(s) that haven’t been sent to WaniKani yet. Logging out will discard them.` : 'This removes your token from this browser.',
+        message: left ? `You have ${left} finished review(s) or lesson(s) that haven’t been sent to WaniKani yet. Logging out will discard them.` : 'This removes your token and the saved copy of your data from this browser.',
         ok: 'Log out', danger: true,
       });
       if (!ok) return;
-      api.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
+      await Local.wipe(); api.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
     };
   }
   $('#open-settings').addEventListener('click', () => openSettings());
@@ -319,12 +319,68 @@
   let routeSeq = 0;
   let cleanup = null;
   let userCache = null;
+  let userRefresh = null;
+  let onUserChange = null; // set by the dashboard so a level-up shows without a reload
 
+  function readUser() {
+    try { const x = JSON.parse(localStorage.getItem('kl_user')); return x && x.u && x.u.id ? x : null; } catch (e) { return null; }
+  }
+  function fetchUser(background) {
+    return api.request('/user', { background }).then((r) => {
+      userCache = { t: Date.now(), u: r.data };
+      try { localStorage.setItem('kl_user', JSON.stringify(userCache)); } catch (e) { /* ignore */ }
+      return r.data;
+    });
+  }
+  const userKnown = () => !!(userCache || readUser());
+
+  /**
+   * Who you are and your level. Answered from the saved copy straight away; if that copy is more than a few
+   * minutes old it is refreshed quietly in the background. Only the very first call waits for the network.
+   */
   async function getUser(force) {
-    if (!userCache || force || Date.now() - userCache.t > 60000) {
-      userCache = { t: Date.now(), u: (await api.request('/user')).data };
+    if (!userCache) userCache = readUser();
+    if (force || !userCache) return fetchUser(false);
+    if (Date.now() - userCache.t > 5 * 60000 && !userRefresh) {
+      const before = userCache.u.level;
+      userRefresh = fetchUser(true)
+        .then((u) => { if (u.level !== before && onUserChange) onUserChange(); })
+        .catch(syncFailed)
+        .finally(() => { userRefresh = null; });
     }
     return userCache.u;
+  }
+
+  // A background sync that finds the token revoked sends you to the login screen; any other failure is ignored
+  // (the saved data keeps working and the next sync tries again).
+  function syncFailed(err) {
+    if (err && err.status === 401 && api.token) {
+      api.token = ''; userCache = null;
+      try { localStorage.removeItem('kl_user'); } catch (e) { /* ignore */ }
+      loginView(err.message);
+    }
+  }
+
+  /**
+   * Make the saved copy of your WaniKani data ready: the first time on this device it is downloaded (with a
+   * progress count); after that it is used as it is and refreshed quietly in the background.
+   */
+  async function ensureLocal() {
+    await Local.ready;
+    const user = await getUser();
+    await Local.bind(user);
+    if (!Local.hasData()) {
+      const el = $('#app .muted');
+      if (el) { el.textContent = 'Setting up your account…'; el.dataset.setup = ''; }
+      await Local.refresh({
+        interactive: true, minAge: 0,
+        onProgress: (n) => { const p = $('#app .muted[data-setup]'); if (p) p.textContent = `Setting up your account… ${n} items so far`; },
+      });
+    } else {
+      Local.refresh().catch(syncFailed);
+    }
+    Local.prefetchSubjects(user).catch(() => {}); // quiet, low priority, once per visit
+    return user;
   }
 
   function route() {
@@ -345,7 +401,7 @@
 
   function fail(err, my) {
     if (my !== routeSeq) return;
-    if (err && err.status === 401) { api.token = ''; userCache = null; return loginView(err.message); }
+    if (err && err.status === 401) { api.token = ''; userCache = null; try { localStorage.removeItem('kl_user'); } catch (e) { /* ignore */ } return loginView(err.message); }
     app.innerHTML = `<div class="wrap center"><h1>Something went wrong</h1><p class="error">${esc(err && err.message ? err.message : err)}</p>
       <div class="row" style="justify-content:center"><button class="btn" id="retry">Try again</button><a class="btn ghost" href="#/">Home</a></div></div>`;
     $('#retry').onclick = route;
@@ -382,95 +438,116 @@
   }
 
   // ---------- home ----------
+  // Everything on this screen is worked out from the saved copy of your data, so it opens instantly, costs no
+  // requests, and keeps itself current (counts change as reviews become due, uploads finish, syncs arrive).
   async function homeView(my) {
     const stale = () => my !== routeSeq;
-    loading();
-    const [user, summary] = await Promise.all([getUser(), api.request('/summary')]);
+    if (!Local.hasData() || !userKnown()) loading('Setting up your account…');
+    const user = await ensureLocal();
     if (stale()) return;
 
-    const now = Date.now();
-    const sd = summary.data;
-    const countNow = (list) => list.filter((x) => new Date(x.available_at) <= now).reduce((n, x) => n + x.subject_ids.length, 0);
-    const lessons = countNow(sd.lessons);
-    const reviews = countNow(sd.reviews);
-    const upcoming = sd.reviews.filter((x) => new Date(x.available_at) > now && x.subject_ids.length).slice(0, 8);
-    const maxUp = Math.max(1, ...upcoming.map((x) => x.subject_ids.length));
-    const pending = api.pending().length;
-    const snap = Session.load();
     const hourLabel = (iso) => {
       const d = new Date(iso);
       const sameDay = d.toDateString() === new Date().toDateString();
       return d.toLocaleString([], sameDay ? { hour: 'numeric' } : { weekday: 'short', hour: 'numeric' });
     };
+    let shown = '';
+    let progressHtml = '';
 
-    app.innerHTML = `<div class="wrap">
-      <div class="greet"><h1>Hello, ${esc(user.username)}</h1><p class="muted">Level ${user.level}</p></div>
-      ${pending ? `<div class="banner"><b>${pending} finished review${pending > 1 ? 's' : ''}</b> still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
-      ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
-      <div class="todo">
-        <a class="reviews${reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${reviews}</span></a>
-        <a class="lessons${lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${lessons}</span></a>
-      </div>
-      <div id="lvl-progress"></div>
-      <div class="panel session-panel">
-        <label for="h-size"><b>Reviews per session</b></label>
-        ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
-        <span class="muted">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More review options</button></span>
-      </div>
-      <div class="panel">
-        <h2>Coming up</h2>
-        ${upcoming.length ? `<div class="forecast">${upcoming.map((x) => `<div><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.subject_ids.length / maxUp * 100))}%"></span></span><span class="n">${x.subject_ids.length}</span></div>`).join('')}</div>`
-          : `<p class="muted">${sd.next_reviews_at ? 'Next reviews: ' + esc(new Date(sd.next_reviews_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
-      </div>
-    </div>`;
+    function draw(force) {
+      if (stale()) return;
+      const u = userCache ? userCache.u : user;
+      const sd = Local.summary();
+      const pendR = api.pending().length;
+      const pendS = api.pendingStarts().length;
+      const snap = Session.load();
+      const sig = JSON.stringify([u.level, sd, pendR, pendS, snap && snap.items.length]);
+      if (!force && sig === shown) return;
+      // Don't rebuild the screen under someone who is typing in the session-length box.
+      if (!force && app.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+      shown = sig;
 
-    UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
-    $('#h-more').onclick = () => openSettings('reviews');
-    const discard = $('#discard-session');
-    if (discard) discard.onclick = async () => {
-      const ok = await UI.confirm({ title: 'Discard this session?', message: 'Items you already finished are safe on WaniKani.', ok: 'Discard', danger: true });
-      if (ok) { Session.clear(); route(); }
-    };
-    const retry = $('#retry-sync');
-    if (retry) retry.onclick = async () => {
-      retry.disabled = true;
-      try { await api.flushPending(); toast('Reviews sent to WaniKani.'); } catch (e) { toast(e.message); }
-      if (!stale()) route();
-    };
-    // Flush quietly in the background if something is waiting.
-    if (pending && !retry.disabled) api.flushPending().then(() => { if (!stale()) route(); }).catch(() => {});
+      const maxUp = Math.max(1, ...sd.upcoming.map((x) => x.count));
+      const waiting = [pendR ? `<b>${pendR} finished review${pendR > 1 ? 's' : ''}</b>` : '', pendS ? `<b>${pendS} started lesson${pendS > 1 ? 's' : ''}</b>` : ''].filter(Boolean).join(' and ');
+      app.innerHTML = `<div class="wrap">
+        <div class="greet"><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
+        ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
+        ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
+        <div class="todo">
+          <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
+          <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
+        </div>
+        <div id="lvl-progress">${progressHtml}</div>
+        <div class="panel session-panel">
+          <label for="h-size"><b>Reviews per session</b></label>
+          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+          <span class="muted">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More review options</button></span>
+        </div>
+        <div class="panel">
+          <h2>Coming up</h2>
+          ${sd.upcoming.length ? `<div class="forecast">${sd.upcoming.map((x) => `<div><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.count / maxUp * 100))}%"></span></span><span class="n">${x.count}</span></div>`).join('')}</div>`
+            : `<p class="muted">${sd.nextReviewsAt ? 'Next reviews: ' + esc(new Date(sd.nextReviewsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
+        </div>
+      </div>`;
+
+      UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
+      $('#h-more').onclick = () => openSettings('reviews');
+      const discard = $('#discard-session');
+      if (discard) discard.onclick = async () => {
+        const ok = await UI.confirm({ title: 'Discard this session?', message: 'Items you already finished are safe on WaniKani.', ok: 'Discard', danger: true });
+        if (ok) { Session.clear(); draw(true); }
+      };
+      const retry = $('#retry-sync');
+      if (retry) retry.onclick = async () => {
+        retry.disabled = true;
+        try { await api.flushPending(); toast('Sent to WaniKani.'); } catch (e) { toast(e.message); }
+        draw();
+      };
+    }
 
     // Level progress: 90% of the level's kanji at Guru or above unlocks the next level.
-    try {
-      const lvl = user.level;
-      // How many kanji a level has never changes, so it is only looked up once per level.
-      const totalKey = 'kl_kanji_total_' + lvl;
-      let total = Number(localStorage.getItem(totalKey)) || 0;
-      const jobs = [api.request(`/assignments?levels=${lvl}&subject_types=kanji&srs_stages=5,6,7,8,9`, { background: true })];
-      if (!total) jobs.push(api.request(`/subjects?levels=${lvl}&types=kanji`, { background: true }));
-      const [passed, kanji] = await Promise.all(jobs);
-      if (kanji) { total = kanji.total_count; try { localStorage.setItem(totalKey, String(total)); } catch (e) { /* ignore */ } }
-      const el = $('#lvl-progress');
-      if (stale() || !el) return;
-      const done = passed.total_count;
-      const need = Math.ceil(total * 0.9);
-      el.innerHTML = `<div class="panel"><h2>Level ${lvl} progress</h2>
-        <div class="meter" role="img" aria-label="${done} of ${need} kanji needed"><i style="width:${Math.min(100, Math.round(done / Math.max(total, 1) * 100))}%"></i><b style="left:90%"></b></div>
-        <p class="muted" style="margin:0">${done} of ${total} kanji at Guru or above. You need ${need} to level up.</p></div>`;
-    } catch (e) { /* progress is a nice-to-have */ }
+    async function drawProgress() {
+      try {
+        const lvl = (userCache ? userCache.u : user).level;
+        const subs = await Local.levelSubjects(lvl, { background: true });
+        if (stale()) return;
+        const kanji = subs.filter((x) => x.object === 'kanji' && !x.data.hidden_at);
+        const total = kanji.length;
+        const done = kanji.filter((x) => { const a = Local.assignmentFor(x.id); return a && a.data.srs_stage >= 5; }).length;
+        const need = Math.ceil(total * 0.9);
+        progressHtml = `<div class="panel"><h2>Level ${lvl} progress</h2>
+          <div class="meter" role="img" aria-label="${done} of ${need} kanji needed"><i style="width:${Math.min(100, Math.round(done / Math.max(total, 1) * 100))}%"></i><b style="left:90%"></b></div>
+          <p class="muted" style="margin:0">${done} of ${total} kanji at Guru or above. You need ${need} to level up.</p></div>`;
+        const box = $('#lvl-progress');
+        if (box) box.innerHTML = progressHtml;
+      } catch (e) { /* progress is a nice-to-have */ }
+    }
+
+    const redraw = () => { draw(); drawProgress(); };
+    draw(true);
+    drawProgress();
+
+    // Keep it current: when data changes, once a half-minute (reviews fall due with time), and a quiet sync every few minutes.
+    onUserChange = () => { draw(true); drawProgress(); };
+    const unsub = Local.subscribe(redraw);
+    const tick = setInterval(() => { if (document.visibilityState === 'visible') draw(); }, 30000);
+    const sync = setInterval(() => { if (document.visibilityState === 'visible') Local.refresh({ minAge: 4 * 60000 }).catch(syncFailed); }, 60000);
+    cleanup = () => { clearInterval(tick); clearInterval(sync); unsub(); onUserChange = null; };
+
+    // Send anything waiting, in the background.
+    if (api.pending().length || api.pendingStarts().length) api.flushPending().then(() => draw()).catch(() => {});
   }
 
   // ---------- levels ----------
   async function levelsView(my, arg) {
     const stale = () => my !== routeSeq;
     loading('Loading level…');
-    const user = await getUser();
+    const user = await ensureLocal();
     const max = user.subscription && user.subscription.max_level_granted ? user.subscription.max_level_granted : 60;
     const lvl = Math.min(60, Math.max(1, Number(arg) || user.level));
-    const [subs, asg] = await Promise.all([api.list(`/subjects?levels=${lvl}`), api.list(`/assignments?levels=${lvl}`)]);
+    const subs = await Local.levelSubjects(lvl); // saved copy, or fetched once and kept
     if (stale()) return;
-    api.putSubjects(subs);
-    const amap = new Map(asg.map((a) => [a.data.subject_id, a]));
+    const amap = { get: (id) => Local.assignmentFor(id) };
     const visible = subs.filter((s) => !s.data.hidden_at);
     const group = (types) => visible.filter((s) => types.includes(s.object)).sort((a, b) => a.data.lesson_position - b.data.lesson_position);
     const section = (title, list) => (list.length ? `<div class="group"><h2>${title}</h2><div class="tiles">${list.map((s) => tile(s, amap.get(s.id) || null)).join('')}</div></div>` : '');
@@ -821,11 +898,10 @@
     const stale = () => my !== routeSeq;
     loading('Loading reviews…');
     api.flushPending().catch(() => {}); // sent in the background, paced to the rate limit
-    const everything = await api.list('/assignments?immediately_available_for_review');
+    await ensureLocal();
     if (stale()) return;
-    // Items you already answered but that are still waiting to be sent are not due again.
-    const queued = new Set(api.pending().map((r) => r.assignment_id));
-    const all = everything.filter((a) => !queued.has(a.id));
+    // Worked out locally. Items you already answered that are still waiting to be sent are left out.
+    const all = Local.reviewsDue();
     if (!all.length) { Session.clear(); return empty('No reviews right now', 'Come back when your next reviews are due.'); }
 
     // Pick up an unfinished session if there is one.
@@ -851,7 +927,8 @@
     }
 
     const ids = chosen.map((a) => a.data.subject_id);
-    const [subs, synonyms] = await Promise.all([api.getSubjects(ids), api.getSynonyms(ids)]);
+    const subs = await api.getSubjects(ids); // saved copy; only anything missing is fetched
+    const synonyms = Local.synonyms(ids);
     if (stale()) return;
 
     const items = chosen.filter((a) => subs.has(a.data.subject_id)).map((a) => {
@@ -901,8 +978,9 @@
   async function lessonsView(my) {
     const stale = () => my !== routeSeq;
     loading('Loading lessons…');
-    const all = await api.list('/assignments?immediately_available_for_lessons');
+    await ensureLocal();
     if (stale()) return;
+    const all = Local.lessonsAvailable();
     if (!all.length) return empty('No lessons right now', 'New lessons unlock as you pass items in your reviews.');
 
     const subs = await api.getSubjects(all.slice(0, LESSON_CAP).map((a) => a.data.subject_id));
@@ -970,29 +1048,34 @@
         items: quizItems,
         practice: true,
         quitMessage: 'Quit the quiz? These lessons will not be started.',
-        onFinish: async () => {
-          loading('Starting your new items…');
-          let started = 0, error = '';
-          for (const i of batch) {
-            try {
-              await api.request(`/assignments/${i.assignment.id}/start`, { method: 'PUT', body: { assignment: { started_at: new Date().toISOString() } } });
-              started++;
-            } catch (e) { error = e.message; if (e.status === 401 || e.status === 403) break; }
-          }
-          if (stale()) return;
+        onFinish: () => {
+          // The items show as started straight away; telling WaniKani happens in the background.
+          batch.forEach((i) => Local.markStarted(i.assignment.id, api.queueStart(i.assignment.id).started_at));
+          if (stale()) { api.flushPending().catch(() => {}); return; }
           app.innerHTML = `<div class="wrap center"><h1>Batch complete</h1>
-            <p>${started} item${started === 1 ? '' : 's'} started. The first review comes in about four hours.</p>
-            ${error ? `<p class="error">${esc(error)}</p>` : ''}
+            <p>${batch.length} item${batch.length === 1 ? '' : 's'} started. The first review comes in about four hours.</p>
+            <p class="muted" id="sync">Saving to WaniKani…</p>
             <div class="row" style="justify-content:center">
-              ${rest.length && !error ? `<button class="btn" id="nb" type="button">Next batch (${rest.length} left)</button>` : ''}
+              ${rest.length ? `<button class="btn" id="nb" type="button">Next batch (${rest.length} left)</button>` : ''}
               <a class="btn ghost" href="#/">Back home</a></div></div>`;
           const nb = $('#nb'); if (nb) nb.onclick = () => lessonBatch(rest, my);
+          api.flushPending().then((n) => {
+            const el = $('#sync');
+            if (el) el.textContent = n ? 'Still waiting to send. It will retry automatically.' : 'Saved to WaniKani.';
+          }).catch((e) => { const el = $('#sync'); if (el) { el.textContent = e.message + ' Your lessons are kept and will retry.'; el.classList.add('error'); } });
         },
       });
     }
 
     draw();
   }
+
+  // Coming back to the tab (or the phone waking up): send anything waiting and pick up changes made elsewhere.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !api.token || !Local.hasData()) return;
+    Local.refresh({ minAge: 2 * 60000 }).catch(syncFailed);
+    if (api.pending().length || api.pendingStarts().length) api.flushPending().catch(() => {});
+  });
 
   // ---------- go ----------
   route();
