@@ -17,6 +17,8 @@
     get backToBack() { return localStorage.getItem('kl_b2b') === '1'; },
     get firstQ() { return localStorage.getItem('kl_first') || 'random'; }, // random | meaning | reading
     get showLevel() { return localStorage.getItem('kl_show_level') !== '0'; },
+    get showStage() { return localStorage.getItem('kl_show_stage') !== '0'; },
+    get srsToast() { return localStorage.getItem('kl_srs_toast') !== '0'; },
     get wrongDelay() { return getNum('kl_wrong_delay', 1000); }, // ms "Next" stays locked after a wrong answer
     get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark
   };
@@ -66,7 +68,13 @@
   const typeClass = (t) => (t === 'kana_vocabulary' ? 'vocabulary' : t);
   const TYPE_LABEL = { radical: 'Radical', kanji: 'Kanji', vocabulary: 'Vocabulary', kana_vocabulary: 'Vocabulary' };
   const TYPE_ORDER = { radical: 0, kanji: 1, vocabulary: 2, kana_vocabulary: 3 };
-  const STAGES = ['Lesson', 'Apprentice 1', 'Apprentice 2', 'Apprentice 3', 'Apprentice 4', 'Guru 1', 'Guru 2', 'Master', 'Enlightened', 'Burned'];
+  const STAGES = ['Lesson', 'Apprentice I', 'Apprentice II', 'Apprentice III', 'Apprentice IV', 'Guru I', 'Guru II', 'Master', 'Enlightened', 'Burned'];
+  // Where WaniKani moves an item after a review: +1 when every answer was right; otherwise it drops by
+  // ceil(wrong answers / 2) stages (twice that from Guru up), never below Apprentice I.
+  function nextStage(stage, wrong) {
+    if (!wrong) return Math.min(9, stage + 1);
+    return Math.max(1, stage - Math.ceil(wrong / 2) * (stage >= 5 ? 2 : 1));
+  }
   const stageGroup = (n) => (n <= 0 ? 'lesson' : n <= 4 ? 'apprentice' : n <= 6 ? 'guru' : n === 7 ? 'master' : n === 8 ? 'enlightened' : 'burned');
 
   function glyph(s) {
@@ -250,6 +258,8 @@
         </section>
         <section class="setcard"><h3>Display</h3>
           ${UI.switchHTML('s-level', settings.showLevel, 'Show the item’s level on review cards')}
+          ${UI.switchHTML('s-stage', settings.showStage, 'Show the item’s SRS stage on review cards')}
+          ${UI.switchHTML('s-srstoast', settings.srsToast, 'Show the new SRS stage after each answer')}
         </section>
       </div>
 
@@ -284,6 +294,8 @@
     UI.bindStepper($('#s-size').closest('[data-stepper]'), setSessionSize);
     $('#s-b2b').onchange = (e) => localStorage.setItem('kl_b2b', e.target.checked ? '1' : '0');
     $('#s-level').onchange = (e) => localStorage.setItem('kl_show_level', e.target.checked ? '1' : '0');
+    $('#s-stage').onchange = (e) => localStorage.setItem('kl_show_stage', e.target.checked ? '1' : '0');
+    $('#s-srstoast').onchange = (e) => localStorage.setItem('kl_srs_toast', e.target.checked ? '1' : '0');
     $('#s-logout').onclick = async () => {
       const left = api.pending().length;
       const ok = await UI.confirm({
@@ -393,7 +405,7 @@
 
     app.innerHTML = `<div class="wrap">
       <div class="greet"><h1>Hello, ${esc(user.username)}</h1><p class="muted">Level ${user.level}</p></div>
-      ${pending ? `<div class="banner"><b>${pending} finished review${pending > 1 ? 's' : ''}</b> couldn’t be sent to WaniKani yet. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
+      ${pending ? `<div class="banner"><b>${pending} finished review${pending > 1 ? 's' : ''}</b> still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
       ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
       <div class="todo">
         <a class="reviews${reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${reviews}</span></a>
@@ -523,6 +535,7 @@
     }
 
     function next() {
+      hideSrsToast();
       commit();
       while (st.pool.length < BATCH && st.queue.length) st.pool.push(st.queue.shift());
       if (!st.pool.length) {
@@ -559,6 +572,9 @@
       const { item, kind } = st.cur;
       const s = item.subject;
       const label = `${TYPE_LABEL[s.object]} ${kind === 'reading' ? 'reading' : (s.object === 'radical' ? 'name' : 'meaning')}`;
+      const stage = item.assignment.data.srs_stage || 0;
+      const showLevel = settings.showLevel;
+      const showStage = settings.showStage && !practice && stage > 0;
       app.innerHTML = `<div class="quiz">
         <div class="qtop">
           <button class="link" id="q-quit" type="button">Quit</button>
@@ -566,16 +582,21 @@
           ${practice ? '<span></span>' : '<button class="link" id="q-wrap" type="button">Wrap up</button>'}
         </div>
         <div class="progress"><i id="q-bar"></i></div>
-        <div class="qcard t-${typeClass(s.object)}">
-          ${settings.showLevel ? `<span class="qlevel">Level ${s.data.level}</span>` : ''}
-          <div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>
-          <div class="qlabel">${esc(label)}</div>
+        <div class="qbox" id="q-box">
+          <div class="qcard t-${typeClass(s.object)}">
+            ${showLevel || showStage ? `<div class="qmeta">
+              ${showLevel ? `<span class="qpill qlevel">Level ${s.data.level}</span>` : ''}
+              ${showStage ? `<span class="qpill qstage" title="Current SRS stage">${esc(STAGES[stage])}</span>` : ''}
+            </div>` : ''}
+            <div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>
+            <div class="qlabel">${esc(label)}</div>
+          </div>
+          <form id="q-form" class="answer" autocomplete="off">
+            <input id="q-input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"
+              lang="${kind === 'reading' ? 'ja' : 'en'}" placeholder="${kind === 'reading' ? 'こたえ' : 'Your answer'}" aria-label="${esc(label)}">
+            <button id="q-go" type="submit">Check</button>
+          </form>
         </div>
-        <form id="q-form" class="answer" autocomplete="off">
-          <input id="q-input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"
-            lang="${kind === 'reading' ? 'ja' : 'en'}" placeholder="${kind === 'reading' ? 'こたえ' : 'Your answer'}" aria-label="${esc(label)}">
-          <button id="q-go" type="submit">Check</button>
-        </form>
         <div class="qmsg" id="q-msg"></div>
         <div id="q-feedback"></div>
       </div>`;
@@ -641,7 +662,15 @@
         st.done.push(item);
         st.uncommitted = item;
       }
+      // The SRS stage only changes once both questions are answered, but after a wrong answer we already
+      // show where the item is heading (it can only go lower from here).
+      let srs = null;
+      if (!practice && settings.srsToast && (!res.correct || !item.pending.length)) {
+        const from = item.assignment.data.srs_stage || 0;
+        srs = { from, to: nextStage(from, item.incorrect.meaning + item.incorrect.reading) };
+      }
       showFeedback(res);
+      showSrsToast(srs);
       updateTop();
       save();
     }
@@ -663,6 +692,7 @@
       st.undo = null;
       st.cur = { item, kind: u.kind };
       st.phase = 'ask';
+      hideSrsToast();
       draw();
       const input = $('#q-input');
       input.value = u.value;
@@ -672,6 +702,38 @@
 
     const ICON_OK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const ICON_BAD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+    // Small pill at the top of the screen: where the item just moved to.
+    let srsTimer = 0;
+    function srsToastEl() {
+      let el = $('#srs-toast');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'srs-toast';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        document.body.appendChild(el);
+      }
+      return el;
+    }
+    function hideSrsToast() {
+      clearTimeout(srsTimer);
+      const el = $('#srs-toast');
+      if (el) el.className = '';
+    }
+    function showSrsToast(srs) {
+      if (!srs) return;
+      const el = srsToastEl();
+      const dir = srs.to > srs.from ? 'up' : srs.to < srs.from ? 'down' : 'same';
+      const arrow = dir === 'up' ? '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 10V2M2.5 5.5L6 2l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        : dir === 'down' ? '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2.5 6.5L6 10l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '';
+      el.innerHTML = `${arrow}<span>${esc(STAGES[srs.to])}</span>`;
+      el.className = '';
+      void el.offsetWidth; // restart the animation when answers come quickly
+      el.className = 'show ' + dir;
+      clearTimeout(srsTimer);
+      srsTimer = setTimeout(hideSrsToast, 1900);
+    }
+
     const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // A brief wash of green or red over the whole screen.
@@ -696,13 +758,14 @@
       const input = $('#q-input');
       const btn = $('#q-go');
       input.readOnly = true;
-      input.classList.add(res.correct ? 'ok' : 'bad');
+      $('#q-form').classList.add(res.correct ? 'ok' : 'bad');
       btn.textContent = 'Next';
       msg('');
 
       // Right and wrong look and move differently: ring, badge, label bar, banner, flash, shake or pop.
+      const box = $('#q-box');
       const card = $('.qcard');
-      card.classList.add(res.correct ? 'res-ok' : 'res-bad');
+      box.classList.add(res.correct ? 'res-ok' : 'res-bad');
       card.insertAdjacentHTML('beforeend', `<span class="qbadge ${res.correct ? 'ok' : 'bad'}" aria-hidden="true">${res.correct ? ICON_OK : ICON_BAD}</span>`);
       flash(res.correct);
 
@@ -746,6 +809,7 @@
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', commit);
+      hideSrsToast();
       commit();
     };
 

@@ -9,6 +9,7 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
   - **Undo answer** (button or Ctrl/Cmd+Z) takes back the answer you just submitted, right or wrong, until you press Next.
   - **Reading and meaning back to back**: after a correct answer, the same item's other question comes next. Optionally always ask meaning first or reading first.
   - **Item level** shown on every review card (can be switched off).
+  - **SRS stage** (Apprentice IV, Guru II, …) shown on the review card, and a small toast after each answer with the stage the item moved to (arrow up or down). It appears after a wrong answer right away and, for a correct one, once both of the item's questions are done. Both can be switched off in Settings, Reviews, Display.
   - **Custom session length**: any number, set on the dashboard or in Settings (0 means everything due).
   - **Saves as you go**: each finished item is sent to WaniKani as soon as you move to the next card, and half-finished items and your place in the session are saved after every answer. Close the tab, come back, and Reviews resumes where you stopped.
 - **Lessons**: batches (3 to 10 items) with meanings, readings, mnemonics, example sentences and components, followed by a quiz. Items are started on WaniKani when the quiz is finished.
@@ -16,7 +17,7 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
 - **Offline-tolerant**: finished reviews are queued in the browser and retried until WaniKani accepts them.
 - **Settings** in two tabs: *General* (theme, a Lessons section, account) and *Reviews* (session length, question order, wrong-answer lock, display).
 - **Wrong-answer lock**: after a wrong answer "Next" stays locked briefly (1 second by default, configurable) so an extra Enter press can't skip the correction. Right and wrong answers differ in color, icon, motion and a text banner.
-- **Rate-limit friendly**: requests are paced below WaniKani's 60 per minute, subjects are cached in the browser, and a 429 response makes the app wait and retry instead of failing.
+- **Rate-limit friendly**: requests are paced below WaniKani's 60 per minute, subjects are cached in the browser, and a 429 response makes the app wait and retry instead of failing. Sending finished reviews runs in the background with a smaller share of the budget and steps aside whenever a screen is waiting, so the dashboard after a session is not held up by uploads.
 - Light, dark (matte black) or follow-your-device themes. All dropdowns, steppers, switches and confirmations are drawn with CSS rather than native browser controls.
 
 ## Deploy on GitHub Pages

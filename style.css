@@ -171,34 +171,51 @@ p { margin: 0 0 .75rem; }
 .qstats { color: var(--muted); font-size: .92rem; font-variant-numeric: tabular-nums; }
 .progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 14px; }
 .progress i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
-.qcard { color: #fff; text-align: center; border-radius: 16px 16px 0 0; padding: 26px 12px 0; overflow: hidden; }
-.qglyph { font-family: var(--mincho); font-size: clamp(64px, 22vw, 124px); line-height: 1.15; word-break: keep-all; }
+/* One unit: coloured card on top, answer row underneath, a single rounded outline around both. */
+.qbox {
+  border-radius: 16px; overflow: hidden; background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line); transition: box-shadow .2s;
+}
+.qcard { position: relative; color: #fff; text-align: center; padding: 18px 0 0; }
+.qmeta { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; padding: 0 12px; }
+.qpill {
+  background: rgba(0, 0, 0, .25); padding: 2px 10px; border-radius: 999px;
+  font-size: .8rem; font-weight: 600; line-height: 1.5; white-space: nowrap;
+}
+.qglyph { font-family: var(--mincho); font-size: clamp(64px, 22vw, 124px); line-height: 1.15; word-break: keep-all; padding: 0 12px; }
 .qglyph.long { font-size: clamp(40px, 12vw, 72px); }
 .qglyph img { height: 1em; filter: brightness(0) invert(1); vertical-align: middle; }
-.qlabel { background: rgba(0, 0, 0, .22); margin-top: 18px; padding: 9px; font-weight: 600; transition: background .2s; }
+.qlabel { background: rgba(0, 0, 0, .22); margin-top: 14px; padding: 9px 12px; font-weight: 600; transition: background .2s; }
 .t-radical { background: var(--rad); }
 .t-kanji { background: var(--kan); }
 .t-vocabulary { background: var(--voc); }
-.answer { display: flex; }
+
+.answer { display: flex; align-items: stretch; background: var(--surface); transition: background .2s; }
 .answer input {
   flex: 1; min-width: 0; font: inherit; font-size: 1.5rem; text-align: center; padding: 14px;
-  border: 2px solid var(--line); border-top: 0; border-radius: 0 0 0 16px; background: var(--surface); color: var(--ink);
+  border: 0; border-radius: 0; background: transparent; color: var(--ink);
 }
+.answer input:focus-visible { outline: none; box-shadow: inset 0 -2px 0 var(--muted); }
 .answer button {
-  position: relative; overflow: hidden; min-width: 84px; border: 0; border-radius: 0 0 16px 0; padding: 0 20px;
-  background: var(--ink); color: var(--paper); font-weight: 600; transition: opacity .15s;
+  position: relative; overflow: hidden; min-width: 96px; border: 0; border-radius: 0; padding: 0 22px;
+  background: var(--ink); color: var(--paper); font-weight: 600; transition: opacity .15s, background .2s;
 }
+.answer button:focus-visible { outline: 2px solid #fff; outline-offset: -5px; }
+/* After an answer the whole row takes the verdict colour and "Next" becomes a quiet darker block. */
+.answer.ok { background: var(--good-fill); }
+.answer.bad { background: var(--bad-fill); }
+.answer.ok input, .answer.bad input { color: #fff; }
+.answer.ok button, .answer.bad button { background: rgba(0, 0, 0, .28); color: #fff; }
+.answer.ok button:hover, .answer.bad button:hover { background: rgba(0, 0, 0, .4); }
 /* "Next" is locked for a moment after a wrong answer: dimmed, with a bar that fills as the lock runs out. */
-.answer button.locking { opacity: .45; cursor: not-allowed; }
+.answer button.locking { opacity: .55; cursor: not-allowed; }
 .answer button.locking::after {
-  content: ""; position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; background: var(--bad-fill);
+  content: ""; position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; background: #fff;
   transform-origin: left; animation: lockbar var(--lock, 1000ms) linear forwards;
 }
 .answer button.nudge { animation: nudge .25s; }
 @keyframes lockbar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes nudge { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
-.answer input.ok { background: var(--good-fill); color: #fff; border-color: var(--good-fill); }
-.answer input.bad { background: var(--bad-fill); color: #fff; border-color: var(--bad-fill); }
 .answer input.shake { animation: shake .35s; }
 @keyframes shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
 @media (prefers-reduced-motion: reduce) { .answer input.shake { animation: none; } .progress i { transition: none; } }
@@ -213,29 +230,43 @@ p { margin: 0 0 .75rem; }
 .v-icon svg { display: block; width: 20px; height: 20px; }
 .answers { margin: 0 2px 10px; }
 
-/* right vs wrong on the question card */
-.qcard.res-ok { box-shadow: 0 0 0 3px var(--good); animation: card-pop .3s; }
-.qcard.res-bad { box-shadow: 0 0 0 3px var(--bad); animation: card-shake .45s; }
-.qcard.res-ok .qlabel { background: var(--good-fill); }
-.qcard.res-bad .qlabel { background: var(--bad-fill); }
+/* right vs wrong on the whole card */
+.qbox.res-ok { box-shadow: 0 0 0 3px var(--good); animation: card-pop .3s; }
+.qbox.res-bad { box-shadow: 0 0 0 3px var(--bad); animation: card-shake .45s; }
+.qbox.res-ok .qlabel { background: var(--good-fill); }
+.qbox.res-bad .qlabel { background: var(--bad-fill); }
+.qbox.res-ok .answer, .qbox.res-bad .answer { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22); }
 .qbadge {
-  position: absolute; right: 10px; top: 8px; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  position: absolute; right: 10px; top: 10px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
   color: #fff; animation: badge-in .35s cubic-bezier(.2, 1.6, .4, 1) both;
 }
 .qbadge.ok { background: var(--good-fill); }
 .qbadge.bad { background: var(--bad-fill); }
-.qbadge svg { width: 22px; height: 22px; }
+.qbadge svg { width: 20px; height: 20px; }
 .flash { position: fixed; inset: 0; pointer-events: none; z-index: 30; animation: flash .55s ease-out forwards; }
 .flash.ok { background: var(--good-fill); --peak: .09; }
 .flash.bad { background: var(--bad-fill); --peak: .22; }
 @keyframes flash { 0% { opacity: 0; } 15% { opacity: var(--peak, .2); } 100% { opacity: 0; } }
-@keyframes card-pop { 40% { transform: scale(1.03); } }
+@keyframes card-pop { 40% { transform: scale(1.02); } }
 @keyframes card-shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-8px); } 40%, 60% { transform: translateX(8px); } }
 @keyframes badge-in { from { transform: scale(0) rotate(-40deg); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .qcard.res-ok, .qcard.res-bad, .qbadge, .answer button.nudge { animation: none; }
+  .qbox.res-ok, .qbox.res-bad, .qbadge, .answer button.nudge { animation: none; }
   .flash { display: none; }
 }
+
+/* SRS stage toast: a small pill at the bottom of the screen, shown for a moment after each answer. */
+#srs-toast {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 25; display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--pop); color: var(--ink);
+  font-size: .9rem; font-weight: 600; pointer-events: none; opacity: 0; transform: translate(-50%, 8px);
+  transition: opacity .18s, transform .18s; box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
+}
+#srs-toast.show { opacity: 1; transform: translate(-50%, 0); }
+#srs-toast svg { width: 12px; height: 12px; flex: none; }
+#srs-toast.up { color: var(--good); border-color: var(--good); }
+#srs-toast.down { color: var(--bad); border-color: var(--bad); }
+@media (prefers-reduced-motion: reduce) { #srs-toast { transition: none; transform: translate(-50%, 0); } }
 details.info { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
 details.info summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: center; justify-content: space-between; }
 details.info summary::-webkit-details-marker { display: none; }
@@ -322,11 +353,8 @@ dialog[open] { animation: dlg-in .15s ease-out; }
 #toast.show { opacity: 1; }
 
 /* customization additions */
-.qcard { position: relative; }
-.qlevel { position: absolute; left: 10px; top: 10px; background: rgba(0, 0, 0, .25); padding: 2px 10px; border-radius: 999px; font-size: .82rem; font-weight: 600; }
 .undo-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 2px; font-size: .9rem; }
 .btn.small { padding: 5px 12px; font-size: .9rem; border-radius: 8px; }
-.banner.info { border-left-color: var(--accent); }
 .session-panel { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .banner.info { border-left-color: var(--accent); }
 

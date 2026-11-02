@@ -9,11 +9,12 @@
 
   // WaniKani allows 60 requests per minute per token. We stay under that on our own, counting requests
   // in localStorage so the budget is shared across tabs and page reloads. Background work (sending
-  // finished reviews, nice-to-have lookups) gets a smaller share so it can never starve a screen
-  // the user is waiting for.
+  // finished reviews, nice-to-have lookups) gets a clearly smaller share, and also steps aside whenever
+  // a screen is waiting for a request, so finishing a review session never leaves the next screen
+  // queued behind the review uploads.
   const WINDOW = 60000;
   const CAP_INTERACTIVE = 54;
-  const CAP_BACKGROUND = 45;
+  const CAP_BACKGROUND = 30;
   const LOG_KEY = 'kl_req_log';
   const MAX_429_RETRIES = 4;
 
@@ -38,6 +39,7 @@
 
   // ---- rate limiter ----
   let blockedUntil = 0; // set when WaniKani answers 429; everything waits
+  let interactiveWaiting = 0; // screens currently waiting for a request slot
 
   function readLog(now) {
     try {
@@ -52,12 +54,22 @@
 
   /** Resolves when it is safe to send one request. */
   async function acquire(background) {
+    if (!background) {
+      interactiveWaiting++;
+      try { return await take(false); } finally { interactiveWaiting--; }
+    }
+    return take(true);
+  }
+
+  async function take(background) {
     let told = false;
     for (;;) {
       const now = Date.now();
       let wait;
       if (now < blockedUntil) {
         wait = blockedUntil - now;
+      } else if (background && interactiveWaiting > 0) {
+        wait = 150; // let the screen that is waiting go first
       } else {
         const log = readLog(now);
         const cap = background ? CAP_BACKGROUND : CAP_INTERACTIVE;
@@ -65,7 +77,7 @@
         wait = log[log.length - cap] + WINDOW - now + 50; // when enough old requests have aged out
       }
       if (!told && !background && wait > 1500 && api.onWait) { told = true; api.onWait(wait); }
-      await sleep(Math.min(Math.max(wait, 100), 5000));
+      await sleep(Math.min(Math.max(wait, 100), background && interactiveWaiting === 0 ? 5000 : 1000));
     }
   }
 
@@ -168,7 +180,7 @@
           const reset = Number(res.headers.get('RateLimit-Reset')); // epoch seconds, when exposed
           let wait = Number.isFinite(reset) && reset * 1000 > Date.now()
             ? reset * 1000 - Date.now() + 500
-            : Math.min(60000, 10000 * 2 ** attempt);
+            : Math.min(30000, 5000 * 2 ** attempt);
           wait = Math.min(wait, 65000);
           blockedUntil = Math.max(blockedUntil, Date.now() + wait);
           if (attempt < MAX_429_RETRIES) {
