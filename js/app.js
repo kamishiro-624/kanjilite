@@ -107,15 +107,25 @@
       .replace(/\n/g, '<br>');
   }
 
-  function tile(s, assignment) {
+  /** opts.guru: show how far the item is from Guru I (stage 5), or that it has passed it. */
+  function tile(s, assignment, opts) {
     const locked = assignment === null || (assignment && !assignment.data.unlocked_at);
     const stage = assignment && assignment.data.srs_stage > 0 ? stageGroup(assignment.data.srs_stage) : '';
     const title = locked ? 'Locked' : assignment ? STAGES[assignment.data.srs_stage] : '';
     const reading = primaryReading(s);
-    return `<button type="button" class="tile t-${typeClass(s.object)}${locked ? ' locked' : ''}" data-subject="${s.id}" title="${esc(title)}">
+    let prog = '';
+    if (opts && opts.guru && assignment && !locked) {
+      const st = assignment.data.srs_stage || 0;
+      const passed = st >= 5;
+      const n = Math.min(st, 5);
+      prog = `<span class="gprog${passed ? ' done' : ''}" aria-hidden="true"><i style="width:${n / 5 * 100}%"></i></span>`
+        + `<span class="gtxt">${passed ? '✓ ' + esc(STAGES[st]) : n + '/5 to Guru'}</span>`;
+    }
+    return `<button type="button" class="tile t-${typeClass(s.object)}${locked ? ' locked' : ''}${prog ? ' kp' : ''}" data-subject="${s.id}" title="${esc(title)}">
       <span class="tg">${glyph(s)}</span>
       <span class="tm">${esc(primaryMeaning(s))}</span>
       ${reading ? `<span class="tr">${esc(reading)}</span>` : ''}
+      ${prog}
       ${stage ? `<span class="stage stage-${stage}"></span>` : ''}
     </button>`;
   }
@@ -315,7 +325,7 @@
         ok: 'Log out', danger: true,
       });
       if (!ok) return;
-      await Local.wipe(); api.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
+      await Local.wipe(); api.reset(); Stats.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
     };
   }
   $('#open-settings').addEventListener('click', () => openSettings());
@@ -405,7 +415,7 @@
     $('#nav').hidden = !api.token;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', (a.dataset.nav || 'home') === name));
     if (!api.token) return loginView();
-    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView };
+    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView };
     (views[name] || homeView)(my, parts[1]).catch((err) => fail(err, my));
   }
   window.addEventListener('hashchange', route);
@@ -549,6 +559,21 @@
     if (api.pending().length || api.pendingStarts().length) flushBg().then(() => draw());
   }
 
+  // ---------- stats ----------
+  async function statsView(my) {
+    loading('Loading stats…');
+    const user = await ensureLocal();
+    if (my !== routeSeq) return;
+    StatsView.mount({
+      el: app,
+      user,
+      currentUser: () => (userCache ? userCache.u : user),
+      tile,
+      syncFailed,
+      setCleanup: (fn) => { cleanup = fn; },
+    });
+  }
+
   // ---------- levels ----------
   async function levelsView(my, arg) {
     const stale = () => my !== routeSeq;
@@ -561,13 +586,18 @@
     const amap = { get: (id) => Local.assignmentFor(id) };
     const visible = subs.filter((s) => !s.data.hidden_at);
     const group = (types) => visible.filter((s) => types.includes(s.object)).sort((a, b) => a.data.lesson_position - b.data.lesson_position);
-    const section = (title, list) => (list.length ? `<div class="group"><h2>${title}</h2><div class="tiles">${list.map((s) => tile(s, amap.get(s.id) || null)).join('')}</div></div>` : '');
+    const section = (title, list, opts) => (list.length ? `<div class="group"><h2>${title}</h2><div class="tiles">${list.map((s) => tile(s, amap.get(s.id) || null, opts)).join('')}</div></div>` : '');
+    const kanjiList = group(['kanji']);
+    const kDone = kanjiList.filter((s) => { const a = amap.get(s.id); return a && a.data.srs_stage >= 5; }).length;
+    const kNeed = Math.ceil(kanjiList.length * 0.9);
+    const kSummary = kanjiList.length ? `<p class="muted kanji-sum"><b>${kDone} of ${kanjiList.length}</b> kanji have reached Guru I or beyond. ${kNeed} are needed to pass this level.</p>` : '';
 
     app.innerHTML = `<div class="wrap">
       <div class="lvlbar"><h1 style="margin:0">Level</h1>
         ${UI.selectHTML('lvl-select', Array.from({ length: 60 }, (_, i) => i + 1).map((n) => ({ value: n, label: `${n}${n > max ? ' (locked by plan)' : ''}` })), lvl, 'Level')}</div>
-      <div class="legend"><span><i style="background:#ffd23f"></i>Apprentice</span><span><i style="background:#5ce08f"></i>Guru</span><span><i style="background:#3dc5ff"></i>Master</span><span><i style="background:#fff;border:1px solid var(--line)"></i>Enlightened</span><span><i style="background:#111"></i>Burned</span><span>Faded means locked</span></div>
-      ${section('Radicals', group(['radical']))}${section('Kanji', group(['kanji']))}${section('Vocabulary', group(['vocabulary', 'kana_vocabulary']))}
+      <div class="legend"><span><i style="background:#ffd23f"></i>Apprentice</span><span><i style="background:#5ce08f"></i>Guru</span><span><i style="background:#3dc5ff"></i>Master</span><span><i style="background:#fff;border:1px solid var(--line)"></i>Enlightened</span><span><i style="background:#111"></i>Burned</span><span>Faded means locked</span><span><i class="lg-prog"></i>Bar on a kanji: progress to Guru I</span></div>
+      ${kSummary}
+      ${section('Radicals', group(['radical']))}${section('Kanji', kanjiList, { guru: true })}${section('Vocabulary', group(['vocabulary', 'kana_vocabulary']))}
     </div>`;
     UI.bindSelect($('#lvl-select').closest('[data-select]'), (v) => go('#/levels/' + v));
   }

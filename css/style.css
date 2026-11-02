@@ -426,3 +426,93 @@ input.switch:checked::after { transform: translateX(18px); background: var(--acc
 .confirm { width: min(400px, 92vw); }
 .confirm-inner { padding: 20px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ---- levels: progress to Guru I on each kanji ---- */
+.tile.kp { padding-bottom: 9px; }
+.tile .gprog { display: block; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .3); margin: 5px 4px 0; overflow: hidden; }
+.tile .gprog i { display: block; height: 100%; background: #ffd23f; border-radius: 3px; }
+.tile .gprog.done i { background: #5ce08f; }
+.tile .gtxt { display: block; font-size: .66rem; margin-top: 3px; opacity: .95; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.legend .lg-prog { width: 16px; height: 5px; background: linear-gradient(90deg, #ffd23f 60%, var(--line) 60%); }
+.kanji-sum { margin: -6px 0 16px; }
+
+/* ---- stats screen ---- */
+[hidden] { display: none !important; }
+.stats h1 { margin-bottom: 14px; }
+.stats h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.stats h3 { margin: 18px 0 8px; font-size: .95rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 2px; align-content: start; }
+.card b { font-size: 1.35rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.card span { color: var(--ink); font-size: .85rem; }
+.card small { color: var(--muted); font-size: .78rem; }
+
+.est-form { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-end; margin-bottom: 6px; }
+.ctl { display: grid; gap: 4px; }
+.ctl > span { font-size: .8rem; color: var(--muted); }
+.est-form .select, .chart-ctl .select { min-width: 150px; }
+.est-out { margin-top: 12px; }
+.est-main { padding: 14px 16px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); margin-bottom: 10px; }
+.est-date { font-size: 1.7rem; font-weight: 700; line-height: 1.2; }
+.est-sub { color: var(--muted); }
+.est-line { margin: 6px 0; }
+.warn-note { margin: 6px 0; padding: 8px 12px; border-radius: 10px; background: var(--bad-bg); color: var(--ink); font-size: .9rem; }
+.table-wrap { overflow-x: auto; margin-top: 10px; }
+.miles { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.miles th, .miles td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: .92rem; }
+.miles th { color: var(--muted); font-weight: 600; font-size: .8rem; }
+
+.acc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px 18px; }
+.acc-top { display: flex; justify-content: space-between; gap: 8px; font-size: .92rem; }
+.meter.small { height: 8px; margin: 6px 0 4px; }
+.hard { margin-top: 4px; }
+.hard-item { display: grid; gap: 4px; justify-items: stretch; text-align: center; }
+.hard-item small { color: var(--muted); font-size: .72rem; }
+
+/* graphs */
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px 16px; margin-bottom: 8px; }
+.chart-head h2 { margin: 0; }
+.chart-ctl { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.chart-note { margin: 0 0 8px; font-size: .88rem; }
+.chart-body { position: relative; }
+.chart-body svg { display: block; max-width: 100%; height: auto; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.chart-empty { padding: 36px 8px; text-align: center; display: grid; gap: 12px; justify-items: center; }
+.chart-empty p { margin: 0; }
+.chart-tip {
+  position: absolute; z-index: 3; pointer-events: none; background: var(--ink); color: var(--paper); font-size: .8rem;
+  padding: 5px 9px; border-radius: 8px; max-width: 260px; line-height: 1.3;
+}
+.chart svg .grid { stroke: var(--line); stroke-width: 1; }
+.chart svg .grid.v { stroke-dasharray: 2 4; opacity: .7; }
+.chart svg .axis-line { stroke: var(--muted); stroke-width: 1; opacity: .6; }
+.chart svg .tick { fill: var(--muted); font-size: 11px; font-family: var(--sans); }
+.chart svg .axis-title { fill: var(--muted); font-size: 11px; font-family: var(--sans); }
+.chart svg .bar { fill: var(--c); }
+.chart svg .bar.dim { fill-opacity: .42; stroke: var(--c); stroke-dasharray: 3 2; stroke-width: 1.2; }
+.chart svg .line { fill: none; stroke: var(--c); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.chart svg .line.dashed { stroke-dasharray: 6 5; }
+.chart svg .dot { fill: var(--c); }
+.chart svg .dot.dim { fill-opacity: .5; }
+.chart svg .marker { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1; }
+.chart svg .marker-label { fill: var(--muted); font-size: 10.5px; font-family: var(--sans); }
+.chart svg .cross { stroke: var(--muted); stroke-width: 1; opacity: .6; }
+.chart svg .hot { fill: var(--paper); stroke: var(--ink); stroke-width: 2; pointer-events: none; }
+.chart svg .zoom { fill: var(--accent); fill-opacity: .15; stroke: var(--accent); stroke-width: 1; pointer-events: none; }
+.axes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 8px; font-size: .85rem; color: var(--muted); }
+.axis { display: inline-flex; align-items: center; gap: 6px; }
+.axis-name { font-weight: 600; color: var(--ink); min-width: 3.4em; }
+.axis input {
+  width: 6.6em; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; text-align: center;
+}
+.axis input:focus { outline: none; border-color: var(--muted); box-shadow: 0 0 0 2px var(--hover); }
+.axis input.custom { border-color: var(--accent); }
+.axes .link:disabled { opacity: .4; cursor: default; }
+.chart-hint { margin: 6px 0 0; }
+@media (max-width: 520px) {
+  .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* logo only; still read aloud */
+  .topbar { padding-left: 12px; padding-right: 12px; }
+  .nav a, .nav button { padding: 6px 7px; }
+  .axis input { width: 5.6em; }
+}
+.chart-hint, .stats .fine { font-size: .8rem; color: var(--muted); }

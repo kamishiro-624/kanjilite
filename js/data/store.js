@@ -80,6 +80,9 @@
 
     assignmentFor(subjectId) { return bySubject.get(subjectId) || null; },
 
+    /** Every assignment in the saved copy (for statistics). */
+    allAssignments() { return Array.from(asg.values()); },
+
     /** Assignments you can review right now, minus the ones you already answered that are still being sent. */
     reviewsDue() {
       const t = Date.now();
