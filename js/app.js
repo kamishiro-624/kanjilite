@@ -57,6 +57,17 @@
     toast(`Pausing about ${Math.ceil(ms / 1000)}s to stay within WaniKani’s rate limit…`);
   };
 
+  // Uploads started in the background used to fail silently. Say so when WaniKani refuses one outright,
+  // and when the token is missing the permission needed to save anything at all.
+  api.onRefused = (item, err) => toast('WaniKani did not accept one result (' + err.message + '). It was skipped.');
+  let permToastAt = 0;
+  function flushBg() {
+    return api.flushPending().catch((e) => {
+      if (e && e.status === 403 && Date.now() - permToastAt > 30000) { permToastAt = Date.now(); toast(e.message); }
+      return api.pending().length + api.pendingStarts().length;
+    });
+  }
+
   const loading = (msg) => { app.innerHTML = `<div class="wrap center"><div class="spinner"></div><p class="muted">${esc(msg || 'Loading…')}</p></div>`; };
   const empty = (title, text) => { app.innerHTML = `<div class="wrap center"><h1>${esc(title)}</h1><p class="muted">${esc(text)}</p><a class="btn" href="#/">Back home</a></div>`; };
 
@@ -535,7 +546,7 @@
     cleanup = () => { clearInterval(tick); clearInterval(sync); unsub(); onUserChange = null; };
 
     // Send anything waiting, in the background.
-    if (api.pending().length || api.pendingStarts().length) api.flushPending().then(() => draw()).catch(() => {});
+    if (api.pending().length || api.pendingStarts().length) flushBg().then(() => draw());
   }
 
   // ---------- levels ----------
@@ -574,6 +585,7 @@
       queue: opts.items.slice(), pool: [], done: [], doneBase: prog.done || 0,
       total: prog.total || opts.items.length, answered: prog.answered || 0, correct: prog.correct || 0,
       cur: null, phase: 'ask', lastCorrect: false, undo: null, uncommitted: null, lockUntil: 0,
+      refused0: api.refused,
     };
     const BATCH = 10;
     const doneN = () => st.doneBase + st.done.length;
@@ -591,7 +603,7 @@
         incorrect_reading_answers: item.incorrect.reading,
         created_at: new Date().toISOString(),
       });
-      api.flushPending().catch(() => { /* stays queued, retried later */ });
+      flushBg(); // stays queued if it fails, retried later
     }
 
     // Progress on unfinished items (including half-answered ones) is saved after every answer.
@@ -897,7 +909,7 @@
   async function reviewsView(my) {
     const stale = () => my !== routeSeq;
     loading('Loading reviews…');
-    api.flushPending().catch(() => {}); // sent in the background, paced to the rate limit
+    flushBg(); // sent in the background, paced to the rate limit
     await ensureLocal();
     if (stale()) return;
     // Worked out locally. Items you already answered that are still waiting to be sent are left out.
@@ -970,7 +982,11 @@
     if (more) more.addEventListener('click', (e) => { e.preventDefault(); route(); });
     api.flushPending().then((n) => {
       const el = $('#sync');
-      if (el) el.textContent = n ? `${n} result${n > 1 ? 's are' : ' is'} still waiting to send. They will retry automatically.` : 'Results saved to WaniKani.';
+      if (!el) return;
+      const lost = api.refused - (st.refused0 || 0);
+      const saved = n ? `${n} result${n > 1 ? 's are' : ' is'} still waiting to send. They will retry automatically.` : 'Results saved to WaniKani.';
+      el.textContent = lost > 0 ? `WaniKani did not accept ${lost} result${lost > 1 ? 's' : ''} (already reviewed elsewhere, or no longer due). ${n ? saved : 'The rest were saved.'}` : saved;
+      if (lost > 0) el.classList.add('error');
     }).catch((e) => { const el = $('#sync'); if (el) el.textContent = e.message + ' Your results are kept and will retry.'; });
   }
 
@@ -1051,7 +1067,7 @@
         onFinish: () => {
           // The items show as started straight away; telling WaniKani happens in the background.
           batch.forEach((i) => Local.markStarted(i.assignment.id, api.queueStart(i.assignment.id).started_at));
-          if (stale()) { api.flushPending().catch(() => {}); return; }
+          if (stale()) { flushBg(); return; }
           app.innerHTML = `<div class="wrap center"><h1>Batch complete</h1>
             <p>${batch.length} item${batch.length === 1 ? '' : 's'} started. The first review comes in about four hours.</p>
             <p class="muted" id="sync">Saving to WaniKani…</p>
@@ -1074,7 +1090,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || !api.token || !Local.hasData()) return;
     Local.refresh({ minAge: 2 * 60000 }).catch(syncFailed);
-    if (api.pending().length || api.pendingStarts().length) api.flushPending().catch(() => {});
+    if (api.pending().length || api.pendingStarts().length) flushBg();
   });
 
   // ---------- go ----------

@@ -199,6 +199,8 @@
     onWait: null,            // optional hook: called with the wait in ms when a screen has to pause
     onAssignment: null,      // hook: called with every assignment WaniKani sends back after a write
     onSubjectsStored: null,  // hook: called whenever subjects were saved to the browser
+    onRefused: null,         // hook: called with (queued item, error) when WaniKani permanently refuses an upload
+    refused: 0,              // how many uploads WaniKani has refused since this page was opened
     db: idb,
 
     get token() { return localStorage.getItem(TOKEN_KEY) || ''; },
@@ -353,6 +355,8 @@
           const permanent = e.status >= 400 && e.status < 500 && ![401, 403, 429].includes(e.status);
           if (!permanent) throw e;
           console.warn('Dropping an update WaniKani refused:', head, e.message);
+          api.refused++;
+          if (api.onRefused) { try { api.onRefused(head, e); } catch (err) { /* ignore */ } }
           api._reconcile(head.assignment_id); // our local copy of that item may be out of date
         }
         // Re-read the queue: new entries may have been appended while we were waiting.
@@ -373,7 +377,18 @@
           [STARTS_KEY, async (x) => api._takeAssignment(await api.request(`/assignments/${x.assignment_id}/start`, {
             method: 'PUT', body: { assignment: { started_at: x.started_at } }, background: true }))],
           [PENDING_KEY, async (x) => {
-            const r = await api.request('/reviews', { method: 'POST', body: { review: x }, background: true });
+            const post = (review) => api.request('/reviews', { method: 'POST', body: { review }, background: true });
+            let r;
+            try {
+              r = await post(x);
+            } catch (e) {
+              // A 422 can mean this device's clock runs ahead of WaniKani's, so created_at looks like it is in
+              // the future. Try once more and let WaniKani stamp the time itself before giving the review up.
+              if (e.status !== 422 || !x.created_at) throw e;
+              const rest = Object.assign({}, x);
+              delete rest.created_at;
+              r = await post(rest);
+            }
             if (r && r.resources_updated) api._takeAssignment(r.resources_updated.assignment);
           }],
         ];
@@ -382,13 +397,20 @@
         }
         if (first) throw first;
       };
-      // Only one tab sends at a time, otherwise two tabs would submit the same review twice.
-      const locked = (fn) => (root.navigator && navigator.locks
-        ? navigator.locks.request('kl_flush', { ifAvailable: true }, (lock) => (lock ? fn() : null))
-        : fn());
+      // Only one tab sends at a time, otherwise two tabs would submit the same review twice. A tab that finds
+      // the lock taken waits its turn (the queue is re-read once it has the lock) instead of giving up.
+      const locked = (fn) => (root.navigator && navigator.locks ? navigator.locks.request('kl_flush', fn) : fn());
+      const left = () => api.pending().length + api.pendingStarts().length;
       flushing = (async () => {
-        try { await locked(run); } finally { flushing = null; }
-        return api.pending().length + api.pendingStarts().length;
+        try {
+          // Something queued while the last pass was finishing would otherwise sit there until the next
+          // page load, so keep going until the queue is really empty (run() throws on transient errors).
+          for (let round = 0; ; round++) {
+            await locked(run);
+            if (!left() || round >= 4) break;
+          }
+        } finally { flushing = null; }
+        return left();
       })();
       return flushing;
     },
