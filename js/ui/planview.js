@@ -32,6 +32,25 @@
       <div class="row" style="margin-top:8px"><a class="btn ghost small" href="#/plan">Open plan</a><button class="link" id="plan-dismiss" type="button">Dismiss for today</button></div></div>`;
   }
 
+
+  /** Dashboard card for today: lessons done against the plan's daily number, and the reviews done and still due.
+      d: { lessonsDone, lessonsQueue, reviewsDone, reviewsDue }. '' when there is no plan to show. */
+  function today(plan, d) {
+    if (!plan) return '';
+    const bar = (done, goal) => `<div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.min(done, goal)}"><i style="width:${goal ? Math.min(100, Math.round(done / goal * 100)) : 0}%"></i></div>`;
+    const goal = plan.lpd ? Math.max(1, Math.round(plan.lpd)) : 0;
+    const left = goal ? Math.max(0, goal - d.lessonsDone) : 0;
+    const lessons = goal
+      ? `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${d.lessonsDone} of ${goal} today</span></div>${bar(d.lessonsDone, goal)}
+          <small>${left ? `${num(left)} to go for today’s plan` : 'Today’s lessons are done.'} ${d.lessonsQueue ? `${num(d.lessonsQueue)} waiting in your queue.` : 'Nothing in your queue right now.'}</small></div>`
+      : `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${d.lessonsDone} done today</span></div>
+          <small>${d.lessonsQueue ? `${num(d.lessonsQueue)} waiting in your queue. ` : ''}Open the plan and press “Update my plan” to get a daily lesson goal.</small></div>`;
+    const total = d.reviewsDone + d.reviewsDue;
+    const reviews = `<div class="today-col"><div class="today-head"><b>Reviews</b><span>${num(d.reviewsDone)} done${d.reviewsDue ? `, ${num(d.reviewsDue)} due now` : ''}</span></div>${bar(d.reviewsDone, total || 1)}
+          <small>${d.reviewsDue ? 'Clear what’s due before starting new lessons, so reviews don’t pile up.' : 'You’re caught up on reviews.'}${plan.rpd ? ` The plan averages about ${num(plan.rpd)} reviews a day from new lessons, and more once older items come back.` : ''}</small></div>`;
+    return `<div class="panel today"><div class="row between"><h2>Today’s plan</h2><a class="link" href="#/plan">Open plan</a></div><div class="today-cols">${lessons}${reviews}</div></div>`;
+  }
+
   function mount(o) {
     const { el } = o;
     let dead = false;
@@ -136,7 +155,7 @@
       const ue = $('#use-earliest'); if (ue) ue.onclick = () => setEnd(endOfDay(dayKey(p.earliest)));
       const sv = $('#plan-save');
       if (sv) sv.onclick = () => {
-        saved = { target: st.target, end: st.end, start: Date.now(), startPos: level + frac };
+        saved = { target: st.target, end: st.end, start: Date.now(), startPos: level + frac, lpd: Math.round(p.lessonsPerDay * 10) / 10, rpd: Math.round(p.reviewsAvg) };
         Plan.save(uid, saved);
         o.toast('Plan saved. The dashboard will tell you if you fall behind.');
         update();
@@ -206,5 +225,5 @@
     fill();
   }
 
-  root.PlanView = { mount, banner };
+  root.PlanView = { mount, banner, today };
 })(window);

@@ -535,6 +535,7 @@
     let numbersHtml = '';
     let critHtml = '';
     let planHtml = '';
+    let todayHtml = '';
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
     const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null };
@@ -559,6 +560,7 @@
         ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
         ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
         <div id="dash-plan">${planHtml}</div>
+        <div id="dash-today">${todayHtml}</div>
         <div class="todo">
           <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
           <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
@@ -644,6 +646,18 @@
       const plan = Plan.load(user.id);
       planHtml = plan && X.progress && !Plan.dismissedToday() ? PlanView.banner(plan, Plan.evaluate(plan, lvl + X.progress.fraction, now)) : '';
       const pb = $('#dash-plan'); if (pb) { pb.innerHTML = planHtml; bindPlan(); }
+
+      // Today's lessons and reviews against the plan (all from the saved copy, no requests).
+      if (plan && X.progress && Plan.evaluate(plan, lvl + X.progress.fraction, now).state !== 'done') {
+        const dk = Stats.dayKey(new Date(now));
+        todayHtml = PlanView.today(plan, {
+          lessonsDone: Local.allAssignments().filter((a) => a.data.started_at && Stats.dayKey(new Date(a.data.started_at)) === dk).length,
+          lessonsQueue: Local.lessonsAvailable().length,
+          reviewsDone: counts[dk] || 0,
+          reviewsDue: Local.reviewsDue().length,
+        });
+      } else todayHtml = '';
+      const tb = $('#dash-today'); if (tb) tb.innerHTML = todayHtml;
 
       if (!X.rs) { critHtml = Dash.critical(null, 0, 75, tile); }
       else {

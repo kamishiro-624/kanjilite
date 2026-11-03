@@ -658,3 +658,12 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .plan-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .plan-table th, .plan-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .plan-banner .btn { text-decoration: none; }
+
+/* Dashboard: today's plan */
+.today h2 { margin: 0 0 8px; }
+.today-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.today-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.today-head span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.today .meter { margin: 8px 0 6px; }
+.today small { color: var(--muted); display: block; line-height: 1.4; }
+@media (max-width: 600px) { .today-cols { grid-template-columns: 1fr; gap: 14px; } }
