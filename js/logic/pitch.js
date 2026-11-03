@@ -53,7 +53,7 @@
     return accent >= n ? 'odaka' : 'nakadaka';
   }
 
-  const LABEL = { heiban: 'heiban (flat)', atamadaka: 'atamadaka (head-high)', nakadaka: 'nakadaka (drops in the middle)', odaka: 'odaka (drops after the word)' };
+  const LABEL = { heiban: 'heiban (平板)', atamadaka: 'atamadaka (頭高)', nakadaka: 'nakadaka (中高)', odaka: 'odaka (尾高)' };
 
   function svg(reading, accent) {
     const ms = moras(reading);
