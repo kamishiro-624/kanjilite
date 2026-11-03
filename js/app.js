@@ -306,7 +306,7 @@
           <div class="field"><label for="s-first">Question asked first</label>${UI.selectHTML('s-first', firsts, settings.firstQ)}</div>
         </section>
         <section class="setcard"><h3>Audio</h3>
-          ${UI.switchHTML('s-autoplay', settings.autoplay, 'Play audio after a correct answer', 'Native-speaker recordings. Vocabulary plays its own audio, a kanji plays a word that uses it. Off by default.')}
+          ${UI.switchHTML('s-autoplay', settings.autoplay, 'Play audio after a correct answer', 'Plays the native-speaker recording of a vocabulary word. Kanji and radicals don’t play automatically. Off by default.')}
         </section>
         <section class="setcard"><h3>After a wrong answer</h3>
           <div class="field"><label for="s-delay">Lock “Next” for</label>${UI.selectHTML('s-delay', delays, settings.wrongDelay)}

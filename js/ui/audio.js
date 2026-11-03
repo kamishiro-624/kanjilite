@@ -5,7 +5,7 @@
 
    renderInfo() calls Sound.sectionHTML(subject) while building the detail view, which is used by the Search
    dialog, the lessons and the review feedback card. Clicks on [data-play] buttons are handled here.
-   Sound.autoplay() is called by the review screen when "play audio after a correct answer" is on. */
+   Sound.autoplay() is called by the review screen when "play audio after a correct answer" is on (vocabulary only). */
 (function (root) {
   'use strict';
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -128,7 +128,7 @@
       const rs = playableReadings(s);
       if (!rs.length) return '';
       return `<section class="audio"><h3>Audio</h3><div class="audio-row">${rs.map((r) => btnHTML(s, r, `<span class="ar">${esc(r)}</span>`, true)).join('')}</div>
-        <p class="muted audio-note">Recorded by native speakers.</p></section>`;
+        <p class="muted audio-note">Recorded by native speakers, sourced from WaniKani.</p></section>`;
     }
     if (s.object === 'kanji' && (s.data.amalgamation_subject_ids || []).length) {
       return `<section class="audio"><h3>Audio</h3><div class="audio-row" data-kanji-audio="${s.id}"><span class="muted">Finding recordings…</span></div>
@@ -168,22 +168,15 @@
   });
 
   /**
-   * Play the audio for an item you just answered correctly: a word plays itself, a kanji plays its best word,
-   * a radical has none. `stillWanted()` is checked before starting, so a slow lookup never plays over a later card.
+   * Play the audio for a vocabulary item you just answered correctly. Kanji and radicals stay silent here
+   * (a kanji's audio is only played from its detail view). `stillWanted()` is checked before starting.
    */
   async function autoplay(s, stillWanted) {
     try {
-      if (s.object === 'vocabulary' || s.object === 'kana_vocabulary') {
-        if (hasAudio(s) && (!stillWanted || stillWanted())) await playWord(s, playableReadings(s)[0], null);
-      } else if (s.object === 'kanji') {
-        const rows = await wordsFor(s);
-        if (rows.length && (!stillWanted || stillWanted())) {
-          // Show which word is playing if its button is on screen.
-          const btn = document.querySelector(`[data-play="${rows[0].v.id}"]`);
-          await playWord(rows[0].v, rows[0].reading, btn);
-        }
+      if ((s.object === 'vocabulary' || s.object === 'kana_vocabulary') && hasAudio(s) && (!stillWanted || stillWanted())) {
+        await playWord(s, playableReadings(s)[0], null);
       }
-    } catch (e) { /* no connection or no audio: stay quiet */ }
+    } catch (e) { /* no audio or blocked by the browser: stay quiet */ }
   }
 
   root.Sound = { sectionHTML, autoplay, stop, hasAudio };
