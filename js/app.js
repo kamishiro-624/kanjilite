@@ -426,6 +426,7 @@
     await Local.ready;
     const user = await getUser();
     await Local.bind(user);
+    Stats.bind(user.id); // so reviews recorded from here on are saved under this account
     if (!Local.hasData()) {
       const el = $('#app .muted');
       if (el) { el.textContent = 'Setting up your account…'; el.dataset.setup = ''; }
@@ -742,7 +743,9 @@
         incorrect_reading_answers: item.incorrect.reading,
         created_at: new Date(api.now() - 1000).toISOString(),
       });
-      Stats.noteReview(); // counted for the streak and the "reviews today" figure
+      // Counted for the streak, the "reviews today" figure and the review graphs.
+      const from = item.assignment.data.srs_stage || 0;
+      Stats.noteReview(undefined, { im: item.incorrect.meaning, ir: item.incorrect.reading, from, to: nextStage(from, item.incorrect.meaning + item.incorrect.reading) });
       flushBg(); // stays queued if it fails, retried later
     }
 

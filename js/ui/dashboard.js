@@ -105,7 +105,7 @@
     if (d.accuracy != null) card(d.accuracy + '%', 'answers correct', d.answers ? `${d.answers.toLocaleString()} answers` : '');
     if (d.user && d.user.started_at) card(span((Date.now() - Date.parse(d.user.started_at)) / DAY), 'on WaniKani', `Since ${shortDate(Date.parse(d.user.started_at))} ${new Date(d.user.started_at).getFullYear()}`);
 
-    const note = !d.haveHistory ? '<p class="fine">The streak counts reviews done in this app. <a href="#/stats">Download your review history</a> on the Stats page to include everything before.</p>' : '';
+    const note = !d.haveHistory ? '<p class="fine">The streak counts reviews done in this app (WaniKani no longer shares your earlier review history).</p>' : '';
     return `<div class="panel nums"><h2>Your numbers</h2><div class="cards">${cards.join('')}</div>${note}</div>`;
   }
 

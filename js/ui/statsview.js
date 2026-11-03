@@ -46,7 +46,7 @@
 
     const D = {
       user, rows: null, rowsErr: null, progress: null, rs: null, rsLoading: true, rsCount: 0,
-      hist: null, histState: 'idle', histNote: '', hard: null,
+      hist: null, hard: null,
     };
     let target = Number(read('kl_target_level', 0)) || 0;
     let basis = read('kl_pace_basis', 'all');
@@ -54,7 +54,7 @@
     if (!BASES.some((b) => b.value === basis)) basis = 'all';
     if (target < 1 || target > 60) target = Math.min(60, (Math.floor(user.level / 10) + 1) * 10);
     let cancelled = false;
-    let stopHistory = false;
+    const NO_HIST = { text: 'No reviews recorded in KanjiLite yet. This fills in as you do reviews here (WaniKani no longer provides past review history).' };
     const charts = [];
 
     const curLevel = () => (ctx.currentUser ? ctx.currentUser().level : user.level);
@@ -226,63 +226,18 @@
     }
 
     // ------------------------------------------------------------ review history panel
+    // WaniKani no longer provides past reviews, so this only describes what KanjiLite has recorded itself.
     function drawHistPanel() {
       const box = $('#st-hist');
       const h = D.hist;
       let html = '<h2>Review history</h2>';
-      if (D.histState === 'running') {
-        const total = h && h.total;
-        const n = h ? h.n : 0;
-        const line = `${D.histNote || 'Downloading your reviews…'} ${thousands(n)}${total ? ' of ' + thousands(total) : ''} counted so far.`;
-        const width = total ? Math.min(100, Math.round(n / total * 100)) : 0;
-        // While a download is running, only the numbers change, so the Stop button stays put under the pointer.
-        const line$ = $('#hist-line');
-        if (line$ && $('#hist-stop')) {
-          line$.textContent = line;
-          const bar = $('#hist-bar'); if (bar) { bar.style.width = width + '%'; bar.parentNode.setAttribute('aria-valuenow', n); }
-          return;
-        }
-        html += `<p class="muted" id="hist-line">${esc(line)}</p>
-          ${total ? `<div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${n}"><i id="hist-bar" style="width:${width}%"></i></div>` : ''}
-          <button class="btn ghost small" type="button" id="hist-stop">Stop (keeps what is counted)</button>`;
-      } else if (h && h.n) {
-        html += `<p class="muted">${thousands(h.n)} reviews counted${h.first ? ', going back to ' + esc(longDate(h.first)) : ''}.${D.histNote ? ' ' + esc(D.histNote) : ''} Only daily totals are kept in this browser.</p>
-          <button class="btn ghost small" type="button" id="hist-go">Check for new reviews</button>`;
+      if (h && h.n) {
+        html += `<p class="muted">${thousands(h.n)} ${h.n === 1 ? 'review' : 'reviews'} recorded in KanjiLite${h.first ? ', since ' + esc(longDate(h.first)) : ''}. The review graphs below cover these.</p>`;
       } else {
-        html += `<p class="muted">The review graphs below (reviews per day, accuracy over time, busiest hours) need your past reviews.
-          They are downloaded once, one request for every 1,000 reviews, paced to stay within WaniKani’s rate limit. Only daily totals are kept in this browser.${D.histNote ? ' ' + esc(D.histNote) : ''}</p>
-          <button class="btn small" type="button" id="hist-go">Download review history</button>`;
+        html += '<p class="muted">The review graphs below (reviews per day, accuracy over time, busiest hours) fill in as you do reviews in KanjiLite.</p>';
       }
+      html += '<p class="muted">WaniKani no longer keeps individual reviews, so its API has no review history to download. Reviews done before, or on the WaniKani site or another app, cannot be included. Only daily totals are kept in this browser.</p>';
       box.innerHTML = html;
-      const go = $('#hist-go'); if (go) go.onclick = () => runHistory();
-      const stop = $('#hist-stop'); if (stop) stop.onclick = () => { stopHistory = true; };
-    }
-
-    let lastGraphDraw = 0;
-    async function runHistory(quiet) {
-      if (D.histState === 'running') return;
-      D.histState = 'running'; D.histNote = quiet ? 'Checking for new reviews…' : ''; stopHistory = false;
-      drawHistPanel();
-      try {
-        const res = await Stats.syncHistory({
-          shouldStop: () => cancelled || stopHistory,
-          onProgress: (n, total, h) => {
-            D.hist = h;
-            if (cancelled) return;
-            drawHistPanel();
-            if (Date.now() - lastGraphDraw > 2500) { lastGraphDraw = Date.now(); refreshHistoryViews(); }
-          },
-        });
-        D.hist = res.history;
-        D.histNote = res.done ? '' : 'Stopped early, so the graphs show only part of your history.';
-      } catch (e) {
-        D.histNote = 'Could not finish: ' + e.message + ' What was counted is kept.';
-        if (ctx.syncFailed) ctx.syncFailed(e);
-      }
-      D.histState = 'idle';
-      if (cancelled) return;
-      drawHistPanel();
-      refreshHistoryViews();
     }
     function refreshHistoryViews() { drawCards(); charts.forEach((c) => { if (c.dependsOnHistory) c.update(); }); }
 
@@ -408,8 +363,7 @@
         id: 'c-heat', title: 'Reviews heatmap', unit: 'review',
         note: 'One square per day. Darker means more reviews that day.',
         counts: () => (D.hist && D.hist.n ? Stats.dayCounts(D.hist) : null),
-        empty: () => (D.histState === 'running' ? { text: 'Downloading your review history…' } : { text: 'The heatmap needs your review history.', action: { label: 'Download review history', name: 'history' } }),
-        onAction: (name) => { if (name === 'history') runHistory(); },
+        empty: () => NO_HIST,
       });
       heat.dependsOnHistory = true;
       charts.push(heat);
@@ -431,11 +385,10 @@
         { key: 'range', label: 'Range', value: '90', options: RANGES },
         { key: 'style', label: 'Style', value: 'bar', options: [{ value: 'bar', label: 'Bars' }, { value: 'line', label: 'Line' }] },
       ],
-      onAction: (name) => { if (name === 'history') runHistory(); },
       data(st) {
         const needHistory = st.metric !== 'lessons';
         if (needHistory && !(D.hist && D.hist.n)) {
-          return { series: [], empty: D.histState === 'running' ? { text: 'Downloading your review history…' } : { text: 'This graph needs your review history.', action: { label: 'Download review history', name: 'history' } } };
+          return { series: [], empty: NO_HIST };
         }
         const rows = needHistory ? Stats.bucketDays(D.hist.days, st.group, st.metric === 'reviews' || st.metric === 'wrong')
           : Stats.bucketTimes(lessonTimes(), st.group);
@@ -466,9 +419,8 @@
       id: 'c-hour', title: 'When you review',
       note: 'Reviews by the hour of the day they were done (your local time).',
       controls: [{ key: 'metric', label: 'Show', value: 'reviews', options: [{ value: 'reviews', label: 'Reviews done' }, { value: 'clean', label: 'Reviews with no mistake (%)' }] }],
-      onAction: (name) => { if (name === 'history') runHistory(); },
       data(st) {
-        if (!(D.hist && D.hist.n)) return { series: [], empty: D.histState === 'running' ? { text: 'Downloading your review history…' } : { text: 'This graph needs your review history.', action: { label: 'Download review history', name: 'history' } } };
+        if (!(D.hist && D.hist.n)) return { series: [], empty: NO_HIST };
         const hh = (h) => `${h}:00 to ${h}:59`;
         const points = [];
         D.hist.hours.forEach((v, h) => {
@@ -528,7 +480,6 @@
       if (h && h.n) {
         D.hist = h;
         drawHistPanel(); refreshHistoryViews();
-        if (Date.now() - (h.at || 0) > 10 * 60000) runHistory(true);
       }
     }).catch(() => {});
   }

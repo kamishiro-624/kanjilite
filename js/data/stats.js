@@ -4,9 +4,8 @@
 
    - Level history:      GET /level_progressions (one small request, refreshed every few minutes)
    - Review statistics:  GET /review_statistics, then only what changed (`updated_after`)
-   - Review history:     GET /reviews. Large (tens of thousands of rows for a long-time user), so it is only
-                         downloaded when asked for, reduced to per-day totals as it arrives, and resumable
-                         (`page_after_id`): stopping halfway keeps what was already counted.
+   - Review history:     WaniKani no longer provides it (GET /reviews is always empty), so reviews finished in this
+                         app are recorded as per-day totals, starting from the first one.
 
    The maths (pace, estimates, bucketing) is plain functions at the bottom of the file. */
 (function (root) {
@@ -166,31 +165,23 @@
   }
 
   /**
-   * Download reviews we have not counted yet. Calls onProgress(counted, expectedTotalOrNull, history) after every page and
-   * stops cleanly (keeping what it has) as soon as shouldStop() says so. Resolves { done }.
+   * WaniKani no longer keeps individual reviews: GET /reviews always answers with an empty list, so there is nothing
+   * to download. Instead every review finished in this app is folded into the same per-day totals as it happens
+   * (a review's wrong answers and the SRS stage it moved from and to), so the review graphs fill in from now on.
    */
-  async function syncHistory(opts) {
-    const o = opts || {};
-    let h = await readSaved(REV_KEY);
-    const fresh = !h;
-    if (!h) h = emptyHistory();
-    let url = '/reviews' + (h.last ? '?page_after_id=' + h.last : '');
-    let first = true;
-    while (url) {
-      if (o.shouldStop && o.shouldStop()) { await writeSaved(REV_KEY, h); return { done: false, history: h }; }
-      const r = await api.request(url, { background: true });
-      if (first && fresh && Number.isFinite(r.total_count)) h.total = r.total_count;
-      first = false;
-      addReviews(h, r.data);
+  let recording = Promise.resolve();
+  function recordReview(r, now) {
+    recording = recording.then(async () => {
+      const h = (await readSaved(REV_KEY)) || emptyHistory();
+      addReviews(h, [{ id: 0, data: {
+        created_at: new Date(now || Date.now()).toISOString(),
+        incorrect_meaning_answers: r.im || 0, incorrect_reading_answers: r.ir || 0,
+        starting_srs_stage: r.from || 0, ending_srs_stage: r.to || 0,
+      } }]);
       h.at = Date.now();
       await writeSaved(REV_KEY, h);
-      if (o.onProgress) o.onProgress(h.n, h.total, h);
-      url = r.pages && r.pages.next_url;
-    }
-    h.total = null;
-    h.at = Date.now();
-    await writeSaved(REV_KEY, h);
-    return { done: true, history: h };
+    }).catch(() => { /* storage unavailable: the streak still works from the simple daily counts */ });
+    return recording;
   }
 
   // ---------------------------------------------------------------- time series
@@ -242,8 +233,9 @@
   const LOCAL_DAYS = 'kl_rev_days';
   const readLocalDays = () => { try { return JSON.parse(localStorage.getItem(LOCAL_DAYS) || '{}') || {}; } catch (e) { return {}; } };
 
-  /** Count one finished review on today's date. Lets the streak work without downloading the whole history. */
-  function noteReview(now) {
+  /** Count one finished review on today's date. details: { im, ir, from, to } also feeds the review graphs. */
+  function noteReview(now, details) {
+    if (details) recordReview(details, now);
     try {
       const d = readLocalDays();
       const t = now || Date.now();
@@ -402,7 +394,7 @@
     reset() { uid = null; Object.keys(mem).forEach((k) => delete mem[k]); },
     savedProgressions, fetchProgressions,
     savedReviewStats, syncReviewStats, summarizeReviewStats,
-    savedHistory, syncHistory,
+    savedHistory,
     // maths
     noteReview, dayCounts, streakInfo, criticalItems,
     normalizeProgressions, levelStats, paceFor, estimate, bucketDays, bucketTimes, addReviews, emptyHistory, dayKey, keyToDate,
