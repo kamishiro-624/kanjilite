@@ -616,3 +616,21 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .pitch-svg text { fill: currentColor; font-family: var(--mincho); font-size: 14px; }
 .pitch-kind { font-size: .85rem; }
 .pitch-loading { color: var(--muted); }
+
+/* audio buttons in the detail view */
+.audio-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.aplay {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px 8px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: .95rem; cursor: pointer;
+}
+.aplay svg { width: 18px; height: 18px; flex: none; }
+.aplay .aw { font-family: var(--mincho); font-size: 1.1rem; }
+.aplay .ar { font-family: var(--mincho); color: var(--muted); }
+.aplay:hover, .aplay:focus-visible { background: var(--hover); border-color: var(--muted); outline: none; }
+.aplay.playing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.aplay.loading { opacity: .6; }
+.aplay.failed { border-style: dashed; color: var(--muted); }
+.aplay.failed::after { content: "Could not play"; font-size: .8rem; color: var(--bad); }
+.audio-note { font-size: .85rem; margin: 6px 0 0; }
+@media (prefers-reduced-motion: no-preference) { .aplay.playing svg { animation: aplay-pulse .9s ease-in-out infinite alternate; } }
+@keyframes aplay-pulse { from { transform: scale(1); } to { transform: scale(1.18); } }

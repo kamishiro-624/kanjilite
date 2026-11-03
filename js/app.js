@@ -19,6 +19,7 @@
     get showLevel() { return localStorage.getItem('kl_show_level') !== '0'; },
     get showStage() { return localStorage.getItem('kl_show_stage') !== '0'; },
     get srsToast() { return localStorage.getItem('kl_srs_toast') !== '0'; },
+    get autoplay() { return localStorage.getItem('kl_autoplay') === '1'; }, // off unless switched on
     get wrongDelay() { return getNum('kl_wrong_delay', 1000); }, // ms "Next" stays locked after a wrong answer
     get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark
   };
@@ -184,6 +185,9 @@
       h += '</section>';
     }
 
+    // Native-speaker audio: a word's own recording, or recordings of words that use the kanji.
+    if (window.Sound) h += Sound.sectionHTML(s);
+
     if (d.parts_of_speech && d.parts_of_speech.length) {
       h += `<section><h3>Part of speech</h3><p>${esc(d.parts_of_speech.join(', ').replace(/_/g, ' '))}</p></section>`;
     }
@@ -301,6 +305,9 @@
           ${UI.switchHTML('s-b2b', settings.backToBack, 'Ask an item’s reading and meaning back to back')}
           <div class="field"><label for="s-first">Question asked first</label>${UI.selectHTML('s-first', firsts, settings.firstQ)}</div>
         </section>
+        <section class="setcard"><h3>Audio</h3>
+          ${UI.switchHTML('s-autoplay', settings.autoplay, 'Play audio after a correct answer', 'Native-speaker recordings. Vocabulary plays its own audio, a kanji plays a word that uses it. Off by default.')}
+        </section>
         <section class="setcard"><h3>After a wrong answer</h3>
           <div class="field"><label for="s-delay">Lock “Next” for</label>${UI.selectHTML('s-delay', delays, settings.wrongDelay)}
             <span class="muted">Keeps a stray extra Enter press from skipping the correction. Undo still works.</span></div>
@@ -342,6 +349,7 @@
     bindSel('s-delay', (v) => localStorage.setItem('kl_wrong_delay', String(v)));
     UI.bindStepper($('#s-size').closest('[data-stepper]'), setSessionSize);
     $('#s-b2b').onchange = (e) => localStorage.setItem('kl_b2b', e.target.checked ? '1' : '0');
+    $('#s-autoplay').onchange = (e) => { localStorage.setItem('kl_autoplay', e.target.checked ? '1' : '0'); if (!e.target.checked && window.Sound) Sound.stop(); };
     $('#s-level').onchange = (e) => localStorage.setItem('kl_show_level', e.target.checked ? '1' : '0');
     $('#s-stage').onchange = (e) => localStorage.setItem('kl_show_stage', e.target.checked ? '1' : '0');
     $('#s-srstoast').onchange = (e) => localStorage.setItem('kl_srs_toast', e.target.checked ? '1' : '0');
@@ -892,6 +900,10 @@
       }
       showFeedback(res);
       showSrsToast(srs);
+      // Reviews only (not the lesson quiz), and only when switched on in Settings.
+      if (res.correct && !practice && settings.autoplay && window.Sound) {
+        Sound.autoplay(item.subject, () => st.cur && st.cur.item === item && st.phase === 'feedback');
+      }
       updateTop();
       save();
     }
@@ -914,6 +926,7 @@
       st.cur = { item, kind: u.kind };
       st.phase = 'ask';
       hideSrsToast();
+      if (window.Sound) Sound.stop();
       draw();
       const input = $('#q-input');
       input.value = u.value;
