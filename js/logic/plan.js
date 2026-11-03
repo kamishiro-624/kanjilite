@@ -49,7 +49,8 @@
   }
 
   /**
-   * o: { pos, target, end (ms), now (ms), items(level) -> items still to learn on that level }
+   * o: { pos, target, end (ms), now (ms), items(level) -> items still to learn on that level,
+   *      behind (optional) -> items still to learn on levels below `pos` (lessons left over from earlier levels) }
    * Returns the pace, the workload and a date for each level. If `end` is sooner than WaniKani allows, the numbers
    * are for the fastest possible finish and `feasible` is false.
    */
@@ -63,13 +64,14 @@
     const eff = Math.max(days, fastest);
     let t = 0;
     const milestones = ws.map((x) => { t += eff * x.w / fastest; return { level: x.level + 1, date: now + t * DAY }; });
-    const itemsLeft = ws.reduce((s, x) => s + o.items(x.level), 0);
+    const behind = Math.max(0, o.behind || 0); // e.g. level 12 vocabulary still in your lessons while you are on level 14
+    const itemsLeft = ws.reduce((s, x) => s + o.items(x.level), 0) + behind;
     const lpd = itemsLeft / Math.max(eff, 1);
     const rev = simulate(lpd, eff);
     return {
       done: false, feasible, days, fastest, earliest: now + fastest * DAY, scale: eff / fastest,
       perLevel: eff / (target - pos), fastestPerLevel: fastest / (target - pos),
-      milestones, itemsLeft, lessonsPerDay: lpd, reviewsAvg: rev.avg, reviewsPeak: rev.peak,
+      milestones, itemsLeft, behind, lessonsPerDay: lpd, reviewsAvg: rev.avg, reviewsPeak: rev.peak,
     };
   }
 

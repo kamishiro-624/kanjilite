@@ -47,6 +47,7 @@
 
     let saved = Plan.load(uid);
     const counts = {};       // level -> items still to learn there (exact, once that level has been downloaded)
+    let old = { n: 0, from: 0 }; // lessons still waiting from levels below yours (n items, oldest level `from`)
     let frac = null;         // how far through the current level you are, once known
     let pace = null;         // your own pace, from your finished levels
     const now0 = Date.now();
@@ -56,7 +57,7 @@
     const dayKey = (ms) => Stats.dayKey(new Date(ms));
     const items = (L) => (counts[L] != null ? counts[L] : Plan.DEFAULT_ITEMS);
     const pos = () => level + (frac || 0);
-    const compute = (end) => Plan.make({ pos: pos(), target: st.target, end, now: Date.now(), items });
+    const compute = (end) => Plan.make({ pos: pos(), target: st.target, end, now: Date.now(), items, behind: old.n });
     const exact = () => { for (let L = level; L < st.target; L++) if (counts[L] == null) return false; return true; };
 
     el.innerHTML = `<div class="wrap plan">
@@ -115,7 +116,7 @@
         <div class="panel"><h2>What it takes</h2>
           <div class="cards">
             <div class="card"><b>${r1(p.perLevel)}</b><span>days per level</span><small>Fastest possible: ${r1(p.fastestPerLevel)}</small></div>
-            <div class="card"><b>${num(p.lessonsPerDay)}</b><span>new lessons a day</span><small>${num(p.itemsLeft)} items in all</small></div>
+            <div class="card"><b>${num(p.lessonsPerDay)}</b><span>new lessons a day</span><small>${num(p.itemsLeft)} items in all${p.behind ? `, including ${num(p.behind)} from earlier levels (oldest: level ${old.from})` : ''}</small></div>
             <div class="card"><b>~${num(p.reviewsAvg)}</b><span>reviews a day, on average</span><small>Busiest weeks: about ${num(p.reviewsPeak)}</small></div>
             <div class="card"><b>${esc(dateText(st.end > p.earliest ? st.end : p.earliest))}</b><span>level ${st.target}</span><small>${plural(Math.ceil((Math.max(st.end, p.earliest) - now) / DAY), 'day')} from today</small></div>
           </div>
@@ -124,7 +125,7 @@
             <button class="btn" id="plan-save" type="button"${canSave ? '' : ' disabled'}>${saved ? 'Update my plan' : 'Save as my plan'}</button>
             ${saved ? '<button class="btn ghost" id="plan-clear" type="button">Remove plan</button>' : ''}
           </div>
-          <p class="fine">Reviews are estimated from WaniKani’s standard intervals and about 85% correct answers, and count only items you haven’t started yet; reviews already in your queue come on top. ${exact() ? 'Item counts are exact.' : `Item counts use about ${Plan.DEFAULT_ITEMS} per level until each level has been downloaded (this happens quietly while you’re here).`}</p>
+          <p class="fine">${p.behind ? `Lessons still waiting from earlier levels are included (${num(p.behind)}). ` : ''}Reviews are estimated from WaniKani’s standard intervals and about 85% correct answers, and count only items you haven’t started yet; reviews already in your queue come on top. ${exact() ? 'Item counts are exact.' : `Item counts use about ${Plan.DEFAULT_ITEMS} per level until each level has been downloaded (this happens quietly while you’re here).`}</p>
         </div>
         <div class="panel"><h2>Pick a pace</h2><p class="muted">Going faster means more lessons and reviews each day. Tap one to use its date.</p><div class="presets">${rows}</div></div>
         <details class="panel" open><summary><h2 style="display:inline">Level by level</h2></summary>
@@ -157,6 +158,33 @@
       pace = Stats.paceFor(Stats.levelStats(lp.rows, level, Date.now()).done, 'all');
       update();
     }).catch(() => {});
+    // Lessons you still have from levels below your current one (you can be on level 14 with level 12 vocabulary
+    // waiting). They are in your lesson queue, so they count towards the workload. Levels that are already
+    // saved on this device are counted in full (that includes items not unlocked yet); otherwise the queue is used.
+    async function scanOlder() {
+      try {
+        await Local.ready;
+        const queue = Local.lessonsAvailable();
+        if (!queue.length) return;
+        const subs = await api.getSubjects(queue.map((a) => a.data.subject_id), { background: true });
+        if (dead) return;
+        const queued = {};
+        queue.forEach((a) => { const sj = subs.get(a.data.subject_id); if (sj && sj.data.level < level && !sj.data.hidden_at) queued[sj.data.level] = (queued[sj.data.level] || 0) + 1; });
+        const lows = Object.keys(queued).map(Number).sort((a, b) => a - b);
+        if (!lows.length) return;
+        let n = 0;
+        for (let L = lows[0]; L < level; L++) {
+          if (Local.levelDone(L)) {
+            const all = await Local.levelSubjects(L, { background: true });
+            if (dead) return;
+            n += all.filter((s) => { if (s.data.hidden_at) return false; const a = Local.assignmentFor(s.id); return !(a && a.data.started_at); }).length;
+          } else n += queued[L] || 0;
+        }
+        old = { n, from: lows[0] };
+        update();
+      } catch (e) { /* the plan works without it */ }
+    }
+    scanOlder();
     let running = false;
     async function fill() {
       if (running) return;
