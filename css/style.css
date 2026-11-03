@@ -634,3 +634,27 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .audio-note { font-size: .85rem; margin: 6px 0 0; }
 @media (prefers-reduced-motion: no-preference) { .aplay.playing svg { animation: aplay-pulse .9s ease-in-out infinite alternate; } }
 @keyframes aplay-pulse { from { transform: scale(1); } to { transform: scale(1.18); } }
+
+/* plan screen, plan banner, notification settings */
+.plan-form { display: flex; flex-wrap: wrap; gap: 6px 28px; }
+.datein {
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  color: var(--ink); font: inherit; color-scheme: light dark;
+}
+.datein:focus { outline: none; border-color: var(--muted); box-shadow: 0 0 0 2px var(--hover); }
+.plan-saved { margin: 4px 0 0; padding: 8px 12px; border-radius: 10px; border-left: 4px solid var(--line); background: var(--hover); }
+.plan-saved.behind, .plan-saved.late { border-left-color: var(--bad); }
+.plan-saved.on, .plan-saved.ahead, .plan-saved.done { border-left-color: var(--good); }
+.presets { display: grid; gap: 8px; }
+.preset {
+  display: grid; gap: 2px; text-align: left; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
+}
+.preset:hover { background: var(--hover); }
+.preset span { color: var(--muted); font-size: .85rem; }
+.plan .fine { font-size: .8rem; color: var(--muted); margin: 10px 0 0; }
+.plan details > summary { cursor: pointer; }
+.plan-table { max-height: 340px; overflow: auto; margin-top: 10px; }
+.plan-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.plan-table th, .plan-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.plan-banner .btn { text-decoration: none; }

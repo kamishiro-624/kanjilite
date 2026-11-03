@@ -21,6 +21,8 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
 - **Search**: find items by meaning, by reading (kana or romaji) or by the kanji or word itself, optionally limited to one of those or to radicals, kanji or vocabulary. Results are grouped and open the usual detail view, which has buttons for the item's page on WaniKani and on Jisho. It searches the levels saved on this device and can download the rest on request. The query stays in the address bar (`#/search/水`).
 - **Stats**: an estimate of when you will reach a level you choose, based on how long your finished levels took (all of them, the last 10 or 5, a figure of your own, or the fastest possible), with a quicker-to-slower range and a date for each level on the way. Also summary numbers, answer accuracy by meaning, reading and item type, the items you miss most, and interactive graphs: time per level, level over time, reviews/accuracy/mistakes/lessons by day, week or month, reviews by hour, and items by SRS stage. A calendar heatmap shows the reviews done on each day of the last 12 months or of any year with data. Every graph has editable axes: type a range, pick the measure, or drag to zoom (double-click resets). The review graphs (and the heatmap) are built from the reviews you finish in KanjiLite, counted into daily totals and kept in the browser. WaniKani no longer keeps individual reviews, so its API has no review history to download and anything done before, or elsewhere, is not included.
 - **Offline-tolerant**: finished reviews and started lessons are queued in the browser and retried until WaniKani accepts them. Once your data has been downloaded, the dashboard, reviews, lessons and level browser all open without a connection.
+- **Plan**: pick a level and a date and KanjiLite works out the days per level, the new lessons a day and roughly how many reviews they create (from WaniKani's standard intervals), with a date for every level on the way. Change the level or date and everything updates; the *Pick a pace* list shows how the workload grows as you go faster, and a date that is quicker than WaniKani allows is flagged with the earliest possible one. Save it and the dashboard warns you when you fall behind the plan (and says what pace would catch you up); dismiss it for the day if you like. The plan is kept in this browser.
+- **Review notifications** (Settings, General): a browser notification when new reviews become available, with a minimum number of reviews, and the count in the tab title. There is no server, so it works while KanjiLite is open in a tab (a background tab is fine); a closed page can't send notifications. One notification per wave: you are notified again after your due count drops below your threshold. Needs https (GitHub Pages) or localhost.
 - **Settings** in two tabs: *General* (theme, a Lessons section, account) and *Reviews* (session length, question order, wrong-answer lock, display).
 - **Wrong-answer lock**: after a wrong answer "Next" stays locked briefly (1 second by default, configurable) so an extra Enter press can't skip the correction. Right and wrong answers differ in color, icon, motion and a text banner.
 - **Rate-limit friendly, with no waiting**: WaniKani allows 60 requests per minute, so KanjiLite keeps a local copy of your data instead of asking for it every time a screen opens.
@@ -52,6 +54,7 @@ Treat the token like a password. Anyone who uses KanjiLite on a shared computer 
 
 ```
 index.html            App shell
+sw.js                 Service worker: shows review notifications and focuses the app when one is tapped
 css/
   style.css           Styles, light and dark
 js/
@@ -65,6 +68,7 @@ js/
     pitch.js          Pitch accent: mora splitting, diagram drawing, accent lookup (Kanjium)
     search.js         Matching subjects by meaning, reading or characters; WaniKani and Jisho links
     kana.js           Romaji to hiragana conversion
+    plan.js           Level plan maths (pace, workload, schedule, on-track check) and the saved plan
   ui/
     ui.js             CSS-styled select, number stepper, switch and confirm dialog
     charts.js         SVG charts with hover values, drag-to-zoom and editable axes
@@ -74,9 +78,11 @@ js/
     searchview.js     The Search screen
     pitchview.js      Fills pitch accent diagrams into the detail view
     audio.js          Native-speaker audio: buttons in the detail view and review autoplay
+    notify.js         Review notifications (timer, local check, permission, settings text)
+    planview.js       The Plan screen and the dashboard's off-track banner
 ```
 
-Scripts load in this order (see `index.html`): `kana`, `check`, `search`, `pitch`, `api`, `store`, `stats`, `ui`, `charts`, `heatmap`, `dashboard`, `statsview`, `searchview`, `pitchview`, `audio`, `app`.
+Scripts load in this order (see `index.html`): `kana`, `check`, `search`, `pitch`, `api`, `store`, `stats`, `plan`, `ui`, `charts`, `heatmap`, `dashboard`, `statsview`, `searchview`, `pitchview`, `audio`, `notify`, `planview`, `app`.
 
 ## Notes and limits
 

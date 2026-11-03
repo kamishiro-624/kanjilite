@@ -289,6 +289,13 @@
           <div class="field"><label for="s-batch">Lessons per batch</label>${UI.selectHTML('s-batch', nums([3, 5, 7, 10]), settings.lessonBatch)}
             <span class="muted">How many new items you study before each quiz.</span></div>
         </section>
+        <section class="setcard"><h3>Notifications</h3>
+          ${UI.switchHTML('s-notify', Notify.enabled(), 'Notify me when new reviews are available', 'Shown while KanjiLite is open in a browser tab, including a background tab.')}
+          <div class="field"><label for="s-notify-min">Only when at least this many are due</label>
+            ${UI.stepperHTML('s-notify-min', Notify.minReviews(), { min: 1, max: 500, step: 1, label: 'Minimum reviews for a notification' })}</div>
+          <p class="muted" id="s-notify-status">${esc(Notify.statusText())}</p>
+          <button class="btn ghost small" id="s-notify-test" type="button">Send a test notification</button>
+        </section>
         <section class="setcard"><h3>Account</h3>
           <p class="muted">Your token is stored only in this browser and sent only to WaniKani.</p>
           <button class="btn ghost" id="s-logout" type="button">Log out</button>
@@ -353,6 +360,18 @@
     $('#s-level').onchange = (e) => localStorage.setItem('kl_show_level', e.target.checked ? '1' : '0');
     $('#s-stage').onchange = (e) => localStorage.setItem('kl_show_stage', e.target.checked ? '1' : '0');
     $('#s-srstoast').onchange = (e) => localStorage.setItem('kl_srs_toast', e.target.checked ? '1' : '0');
+    const nStatus = () => { $('#s-notify-status').textContent = Notify.statusText(); };
+    $('#s-notify').onchange = async (e) => {
+      if (!e.target.checked) { Notify.disable(); nStatus(); return; }
+      const p = await Notify.enable();
+      if (p !== 'granted') e.target.checked = false;
+      nStatus();
+    };
+    UI.bindStepper($('#s-notify-min').closest('[data-stepper]'), (v) => Notify.setMin(v));
+    $('#s-notify-test').onclick = async () => {
+      if (Notify.permission() !== 'granted') { const p = await Notify.enable(); $('#s-notify').checked = Notify.enabled(); nStatus(); if (p !== 'granted') return; }
+      if (!(await Notify.test())) toast('The browser wouldn’t show the notification.');
+    };
     $('#s-logout').onclick = async () => {
       const left = api.pending().length + api.pendingStarts().length;
       const ok = await UI.confirm({
@@ -361,7 +380,7 @@
         ok: 'Log out', danger: true,
       });
       if (!ok) return;
-      await Local.wipe(); api.reset(); Stats.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
+      Notify.stop(); await Local.wipe(); api.reset(); Stats.reset(); Session.clear(); userCache = null; dlg.close(); go('#/');
     };
   }
   $('#open-settings').addEventListener('click', () => openSettings());
@@ -438,6 +457,8 @@
       Local.refresh().catch(syncFailed);
     }
     Local.prefetchSubjects(user).catch(() => {}); // quiet, low priority, once per visit
+    // Review notifications run on every screen, not just the dashboard (no-op if already started or switched off).
+    Notify.start({ summary: () => Local.summary(), sync: () => Local.refresh({ minAge: 60000 }), subscribe: Local.subscribe });
     return user;
   }
 
@@ -452,7 +473,7 @@
     $('#nav').hidden = !api.token;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', (a.dataset.nav || 'home') === name));
     if (!api.token) return loginView();
-    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView, search: searchView };
+    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView, search: searchView, plan: planView };
     (views[name] || homeView)(my, parts[1]).catch((err) => fail(err, my));
   }
   window.addEventListener('hashchange', route);
@@ -513,6 +534,7 @@
     let progressHtml = '';
     let numbersHtml = '';
     let critHtml = '';
+    let planHtml = '';
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
     const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null };
@@ -536,6 +558,7 @@
         <div class="greet"><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
         ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
         ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
+        <div id="dash-plan">${planHtml}</div>
         <div class="todo">
           <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
           <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
@@ -555,6 +578,7 @@
         </div>
       </div>`;
 
+      bindPlan();
       UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
       $('#h-more').onclick = () => openSettings('reviews');
       const discard = $('#discard-session');
@@ -568,6 +592,11 @@
         try { await api.flushPending(); toast('Sent to WaniKani.'); } catch (e) { toast(e.message); }
         draw();
       };
+    }
+
+    function bindPlan() {
+      const d = $('#plan-dismiss');
+      if (d) d.onclick = () => { Plan.dismiss(); planHtml = ''; const b = $('#dash-plan'); if (b) b.innerHTML = ''; };
     }
 
     // Level progress, split into radicals, kanji and vocabulary and coloured by SRS stage.
@@ -610,6 +639,11 @@
         accuracy: ans && ans.c + ans.i ? Math.round(ans.c / (ans.c + ans.i) * 1000) / 10 : null, answers: ans ? ans.c + ans.i : 0,
       });
       const nb = $('#dash-numbers'); if (nb) nb.innerHTML = numbersHtml;
+
+      // Off-track warning against the saved plan (needs the level progress, so it waits for that).
+      const plan = Plan.load(user.id);
+      planHtml = plan && X.progress && !Plan.dismissedToday() ? PlanView.banner(plan, Plan.evaluate(plan, lvl + X.progress.fraction, now)) : '';
+      const pb = $('#dash-plan'); if (pb) { pb.innerHTML = planHtml; bindPlan(); }
 
       if (!X.rs) { critHtml = Dash.critical(null, 0, 75, tile); }
       else {
@@ -680,6 +714,18 @@
       currentUser: () => (userCache ? userCache.u : user),
       tile,
       syncFailed,
+      setCleanup: (fn) => { cleanup = fn; },
+    });
+  }
+
+  // ---------- plan ----------
+  async function planView(my) {
+    loading('Loading plan…');
+    const user = await ensureLocal();
+    if (my !== routeSeq) return;
+    PlanView.mount({
+      el: app, user, toast, syncFailed,
+      currentUser: () => (userCache ? userCache.u : user),
       setCleanup: (fn) => { cleanup = fn; },
     });
   }
