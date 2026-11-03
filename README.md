@@ -16,6 +16,7 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
   - **Saves as you go**: each finished item is sent to WaniKani as soon as you move to the next card, and half-finished items and your place in the session are saved after every answer. Close the tab, come back, and Reviews resumes where you stopped.
 - **Lessons**: batches (3 to 10 items) with meanings, readings, mnemonics, example sentences and components, followed by a quiz. Items are started on WaniKani when the quiz is finished.
 - **Level browser**: every radical, kanji and vocabulary item of any level, colored by SRS stage, with a detail view for each. Each kanji shows its progress toward Guru I (0/5 to 4/5), then a check mark once it has passed it.
+- **Pitch accent diagrams** in the detail view: a vocabulary item shows one diagram per reading, and a kanji shows the diagrams of a few words that use it (high and low dots, with a hollow dot for the particle that follows, and the name of the pattern). WaniKani's API has no pitch data, so the accent numbers come from the [Kanjium](https://github.com/mifunetoshiro/kanjium) list, which is downloaded the first time a diagram is needed and then kept in the browser.
 - **Search**: find items by meaning, by reading (kana or romaji) or by the kanji or word itself, optionally limited to one of those or to radicals, kanji or vocabulary. Results are grouped and open the usual detail view, which has buttons for the item's page on WaniKani and on Jisho. It searches the levels saved on this device and can download the rest on request. The query stays in the address bar (`#/search/水`).
 - **Stats**: an estimate of when you will reach a level you choose, based on how long your finished levels took (all of them, the last 10 or 5, a figure of your own, or the fastest possible), with a quicker-to-slower range and a date for each level on the way. Also summary numbers, answer accuracy by meaning, reading and item type, the items you miss most, and interactive graphs: time per level, level over time, reviews/accuracy/mistakes/lessons by day, week or month, reviews by hour, and items by SRS stage. A calendar heatmap shows the reviews done on each day of the last 12 months or of any year with data. Every graph has editable axes: type a range, pick the measure, or drag to zoom (double-click resets). The review graphs need your review history, which is downloaded only when you ask for it, counted into daily totals and kept in the browser.
 - **Offline-tolerant**: finished reviews and started lessons are queued in the browser and retried until WaniKani accepts them. Once your data has been downloaded, the dashboard, reviews, lessons and level browser all open without a connection.
@@ -60,6 +61,7 @@ js/
     stats.js          Level history, review statistics, resumable review-history download, pace and estimate maths
   logic/
     check.js          Answer checking (meanings with typo tolerance, readings)
+    pitch.js          Pitch accent: mora splitting, diagram drawing, accent lookup (Kanjium)
     search.js         Matching subjects by meaning, reading or characters; WaniKani and Jisho links
     kana.js           Romaji to hiragana conversion
   ui/
@@ -69,9 +71,10 @@ js/
     dashboard.js      Dashboard widgets: level progress by type, critical condition, your numbers
     statsview.js      The Stats screen
     searchview.js     The Search screen
+    pitchview.js      Fills pitch accent diagrams into the detail view
 ```
 
-Scripts load in this order (see `index.html`): `kana`, `check`, `search`, `api`, `store`, `stats`, `ui`, `charts`, `heatmap`, `dashboard`, `statsview`, `searchview`, `app`.
+Scripts load in this order (see `index.html`): `kana`, `check`, `search`, `pitch`, `api`, `store`, `stats`, `ui`, `charts`, `heatmap`, `dashboard`, `statsview`, `searchview`, `pitchview`, `app`.
 
 ## Notes and limits
 

@@ -52,6 +52,16 @@
   }
   let interactiveWaiting = 0; // screens currently waiting for a request slot
 
+  // How far this device's clock is from WaniKani's (server minus device, ms), learned from the Date header of
+  // every response. A device clock that runs ahead makes WaniKani reject timestamps as being in the future, and
+  // one that runs behind can put a lesson's start before the moment it unlocked, so timestamps we send are
+  // corrected with this and, if WaniKani still objects, resent without a timestamp so it stamps the time itself.
+  let clockOffset = 0;
+  function learnClock(res) {
+    const t = Date.parse(res.headers.get('Date') || '');
+    if (Number.isFinite(t)) clockOffset = t - Date.now() + 500; // the header is rounded down to the second
+  }
+
   function readLog(now) {
     try {
       const raw = JSON.parse(localStorage.getItem(LOG_KEY));
@@ -241,6 +251,8 @@
           throw new ApiError('Could not reach WaniKani. Check your connection and try again.', 0);
         }
 
+        learnClock(res);
+
         // When WaniKani exposes its rate-limit headers, trust them over our own count: other apps, scripts
         // and the official site share the same per-token budget. Stop just short of the limit.
         const remaining = res.headers.get('RateLimit-Remaining');
@@ -329,8 +341,11 @@
       list.push(review);
       writeQ(PENDING_KEY, list);
     },
+    /** The current time as WaniKani sees it (this device's clock, corrected by what the last response said). */
+    now() { return Date.now() + clockOffset; },
     queueStart(assignmentId) {
-      const item = { assignment_id: assignmentId, started_at: new Date().toISOString() };
+      // A second in the past: never "in the future" from WaniKani's point of view.
+      const item = { assignment_id: assignmentId, started_at: new Date(api.now() - 1000).toISOString() };
       const list = api.pendingStarts();
       if (!list.some((x) => x.assignment_id === assignmentId)) list.push(item);
       writeQ(STARTS_KEY, list);
@@ -374,8 +389,20 @@
       const run = async () => {
         let first = null;
         const jobs = [
-          [STARTS_KEY, async (x) => api._takeAssignment(await api.request(`/assignments/${x.assignment_id}/start`, {
-            method: 'PUT', body: { assignment: { started_at: x.started_at } }, background: true }))],
+          [STARTS_KEY, async (x) => {
+            const put = (assignment) => api.request(`/assignments/${x.assignment_id}/start`, { method: 'PUT', body: { assignment }, background: true });
+            let r;
+            try {
+              r = await put({ started_at: x.started_at });
+            } catch (e) {
+              // WaniKani answers 422 when the start time is not acceptable (after the current time, or not after
+              // the moment the item unlocked: both happen when this device's clock is off). The time is optional,
+              // so ask again without it and let WaniKani use its own.
+              if (e.status !== 422) throw e;
+              r = await put({});
+            }
+            api._takeAssignment(r);
+          }],
           [PENDING_KEY, async (x) => {
             const post = (review) => api.request('/reviews', { method: 'POST', body: { review }, background: true });
             let r;

@@ -604,3 +604,15 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 @media (max-width: 370px) {
   .nav a, .nav button { padding: 6px 4px; font-size: .86rem; }
 }
+
+/* Pitch accent diagrams */
+.pitch-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0; }
+.pitch-word { font-family: var(--mincho); font-size: 1.15rem; min-width: 3.5em; }
+.pitch-word:empty { display: none; }
+.pitch-svg { max-width: 100%; height: auto; overflow: visible; }
+.pitch-svg line { stroke: currentColor; stroke-width: 2; }
+.pitch-svg circle { fill: currentColor; stroke: currentColor; stroke-width: 2; }
+.pitch-svg circle.particle { fill: var(--paper, transparent); }
+.pitch-svg text { fill: currentColor; font-family: var(--mincho); font-size: 14px; }
+.pitch-kind { font-size: .85rem; }
+.pitch-loading { color: var(--muted); }

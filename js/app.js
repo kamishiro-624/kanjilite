@@ -188,6 +188,21 @@
       h += `<section><h3>Part of speech</h3><p>${esc(d.parts_of_speech.join(', ').replace(/_/g, ' '))}</p></section>`;
     }
 
+    // Pitch accent: a word shows its own readings; a kanji shows a few of the words it appears in.
+    {
+      const items = [];
+      if (s.object === 'vocabulary') {
+        (d.readings || []).forEach((r) => items.push({ w: d.characters, r: r.reading }));
+      } else if (s.object === 'kanji' && related && showUsedIn) {
+        (d.amalgamation_subject_ids || []).map((id) => related.get(id))
+          .filter((v) => v && v.object === 'vocabulary' && v.data.characters && primaryReading(v))
+          .slice(0, 6).forEach((v) => items.push({ w: v.data.characters, r: primaryReading(v), show: true }));
+      }
+      if (items.length) {
+        h += `<section><h3>Pitch accent${s.object === 'kanji' ? ' in words with this kanji' : ''}</h3><div class="pitch" data-pitch="${esc(JSON.stringify(items))}"></div></section>`;
+      }
+    }
+
     if (d.context_sentences && d.context_sentences.length) {
       h += '<section class="sentences"><h3>Example sentences</h3>';
       d.context_sentences.slice(0, 3).forEach((c) => { h += `<p class="ja">${esc(c.ja)}</p><p class="muted">${esc(c.en)}</p>`; });
@@ -717,7 +732,7 @@
         assignment_id: item.assignment.id,
         incorrect_meaning_answers: item.incorrect.meaning,
         incorrect_reading_answers: item.incorrect.reading,
-        created_at: new Date().toISOString(),
+        created_at: new Date(api.now() - 1000).toISOString(),
       });
       Stats.noteReview(); // counted for the streak and the "reviews today" figure
       flushBg(); // stays queued if it fails, retried later
