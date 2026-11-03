@@ -275,7 +275,7 @@
           throw new ApiError('WaniKani is limiting requests right now. Wait a minute and try again.', 429);
         }
         if (res.status === 401) throw new ApiError('WaniKani rejected your API token. Check that it is correct and still active.', 401);
-        if (res.status === 403) throw new ApiError('Your API token is missing a permission for this action. Create a token that allows "assignments:start" and "reviews:create".', 403);
+        if (res.status === 403) throw new ApiError('Your API token is missing a permission for this action. Create a token that allows "assignments:start", "reviews:create", "study_materials:create" and "study_materials:update".', 403);
         if (!res.ok) {
           let msg = '';
           try { msg = (await res.json()).error; } catch (e) { /* ignore */ }

@@ -23,7 +23,7 @@
 
   const asg = new Map();       // assignment id -> assignment
   const bySubject = new Map(); // subject id -> assignment
-  const materials = new Map(); // subject id -> meaning synonyms
+  const materials = new Map(); // subject id -> { id, subject_id, synonyms, meaning_note, reading_note }
   let meta = {};               // sync bookkeeping, persisted in IndexedDB
   const listeners = new Set();
 
@@ -133,8 +133,61 @@
 
     synonyms(ids) {
       const map = new Map();
-      ids.forEach((id) => { const s = materials.get(id); if (s && s.length) map.set(id, s); });
+      ids.forEach((id) => { const m = materials.get(id); if (m && m.synonyms.length) map.set(id, m.synonyms); });
       return map;
+    },
+
+    /** Your synonyms and notes for one subject (always an object, empty when you have none). */
+    material(subjectId) {
+      const m = materials.get(subjectId);
+      return m ? { synonyms: m.synonyms.slice(), meaning_note: m.meaning_note, reading_note: m.reading_note } : { synonyms: [], meaning_note: '', reading_note: '' };
+    },
+
+    /**
+     * Save your synonyms and/or notes for a subject on WaniKani. `patch` holds any of
+     * { synonyms, meaning_note, reading_note }. Nothing changes here until WaniKani has accepted it,
+     * so a refusal (for instance a token without the study_materials permissions) leaves everything as it was.
+     */
+    saveMaterial(subjectId, patch) {
+      const run = (Local._matQueue.get(subjectId) || Promise.resolve()).catch(() => {}).then(() => Local._saveMaterial(subjectId, patch));
+      Local._matQueue.set(subjectId, run);
+      return run;
+    },
+    _matQueue: new Map(),
+
+    async _saveMaterial(subjectId, patch) {
+      await Local.ready;
+      const cur = Local.material(subjectId);
+      const next = Object.assign({}, cur, patch);
+      const fields = { meaning_synonyms: next.synonyms, meaning_note: next.meaning_note, reading_note: next.reading_note };
+      let row = materials.get(subjectId);
+      let res;
+      try {
+        if (row && row.id) {
+          res = await api.request('/study_materials/' + row.id, { method: 'PUT', body: { study_material: fields } });
+        } else {
+          res = await api.request('/study_materials', { method: 'POST', body: { study_material: Object.assign({ subject_id: subjectId }, fields) } });
+        }
+      } catch (e) {
+        // This device did not know WaniKani already had a record for the subject. Find it and update it instead.
+        if (!(row && row.id) && e && e.status === 422) {
+          const found = await api.list('/study_materials?subject_ids=' + subjectId);
+          if (!found.length) throw e;
+          res = await api.request('/study_materials/' + found[0].id, { method: 'PUT', body: { study_material: fields } });
+        } else throw e;
+      }
+      const m = res && res.data ? res.data : {};
+      row = {
+        id: res.id,
+        subject_id: subjectId,
+        synonyms: m.meaning_synonyms || next.synonyms,
+        meaning_note: m.meaning_note == null ? next.meaning_note : m.meaning_note,
+        reading_note: m.reading_note == null ? next.reading_note : m.reading_note,
+      };
+      materials.set(subjectId, row);
+      await api.db.put('materials', [row]);
+      emit();
+      return Local.material(subjectId);
     },
 
     // ---- subjects by level ----
@@ -220,8 +273,14 @@
       const first = !meta.mat_at;
       const path = first ? '/study_materials' : `/study_materials?updated_after=${enc(meta.mat_at)}`;
       const items = await api.list(path, { background: bg });
-      const rows = items.map((m) => ({ id: m.id, subject_id: m.data.subject_id, synonyms: m.data.meaning_synonyms || [] }));
-      rows.forEach((r) => materials.set(r.subject_id, r.synonyms));
+      const rows = items.map((m) => ({
+        id: m.id,
+        subject_id: m.data.subject_id,
+        synonyms: m.data.meaning_synonyms || [],
+        meaning_note: m.data.meaning_note || '',
+        reading_note: m.data.reading_note || '',
+      }));
+      rows.forEach((r) => materials.set(r.subject_id, r));
       await api.db.put('materials', rows);
       await setMeta('mat_at', items.dataUpdatedAt || (first ? iso(Date.now() - DAY) : meta.mat_at));
       return items.length > 0;
@@ -317,8 +376,16 @@
   Local.ready = (async () => {
     const [rows, mats, metaRows] = await Promise.all([api.db.all('assignments'), api.db.all('materials'), api.db.all('meta')]);
     rows.forEach(index);
-    mats.forEach((m) => materials.set(m.subject_id, m.synonyms));
+    mats.forEach((m) => materials.set(m.subject_id, {
+      id: m.id,
+      subject_id: m.subject_id,
+      synonyms: m.synonyms || [],
+      meaning_note: m.meaning_note || '',
+      reading_note: m.reading_note || '',
+    }));
     metaRows.forEach((r) => { meta[r.key] = r.value; });
+    // Study materials saved by an earlier version of the app have no notes. Download them again once.
+    if (mats.some((m) => !('meaning_note' in m)) && meta.mat_at) { meta.mat_at = null; api.db.put('meta', [{ key: 'mat_at', value: null }]); }
     // A first download that was interrupted never wrote asg_at, so it simply starts over.
   })();
 

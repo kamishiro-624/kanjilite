@@ -45,7 +45,7 @@ To try it locally, run `python3 -m http.server` in this folder and open http://l
 ## Using it
 
 1. On WaniKani open **Settings, Personal Access Tokens** and generate a token.
-2. Tick **assignments:start** and **reviews:create**. Without them you can browse but lessons and reviews cannot be saved.
+2. Tick **assignments:start** and **reviews:create**. Without them you can browse but lessons and reviews cannot be saved. Also tick **study_materials:create** and **study_materials:update** if you want to add synonyms and notes to items (they are saved on WaniKani).
 3. Paste the token into KanjiLite. It is stored in your browser's local storage and only ever sent to `api.wanikani.com`.
 
 Treat the token like a password. Anyone who uses KanjiLite on a shared computer should log out (Settings, Log out).

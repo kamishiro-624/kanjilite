@@ -667,3 +667,19 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .today .meter { margin: 8px 0 6px; }
 .today small { color: var(--muted); display: block; line-height: 1.4; }
 @media (max-width: 600px) { .today-cols { grid-template-columns: 1fr; gap: 14px; } }
+
+/* your synonyms and notes (details view, lessons, quiz feedback) */
+.mat .syn-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; align-items: center; }
+.mat .syn { display: inline-flex; align-items: center; gap: 2px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--hover); }
+.mat .syn-del { border: 0; background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; }
+.mat .syn-del:hover { color: var(--ink); background: var(--line); }
+.mat .syn-add { display: flex; gap: 8px; margin-bottom: 10px; }
+.mat .mat-in { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.mat .syn-add .mat-in { flex: 1; }
+.mat textarea.mat-in { display: block; width: 100%; resize: vertical; margin-top: 4px; }
+.mat .mat-in:focus-visible { outline: none; border-color: var(--muted); }
+.mat .mat-label { display: block; color: var(--muted); font-size: .9rem; margin-bottom: 10px; }
+.mat .mat-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mat .mat-status { font-size: .9rem; color: var(--muted); }
+.mat .mat-status.bad { color: #d6453d; }
+.mat [disabled] { opacity: .6; cursor: default; }

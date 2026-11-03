@@ -185,6 +185,8 @@
       h += '</section>';
     }
 
+    h += `<section class="mat"><h3>Your synonyms and notes</h3><div class="mat-box" data-mat="${s.id}">${matHTML(s)}</div></section>`;
+
     // Native-speaker audio: a word's own recording, or recordings of words that use the kanji.
     if (window.Sound) h += Sound.sectionHTML(s);
 
@@ -230,6 +232,93 @@
 
     if (d.document_url) h += `<p class="muted"><a href="${esc(d.document_url)}" target="_blank" rel="noopener">Open on WaniKani</a></p>`;
     return h;
+  }
+
+  /** Your own synonyms and notes for one subject (stored on WaniKani as its study material). */
+  const matBusy = new Set();
+  function matHTML(s, status) {
+    const m = Local.material(s.id);
+    const busy = matBusy.has(s.id) ? ' disabled' : '';
+    const hasReading = (s.data.readings || []).length > 0;
+    const chips = m.synonyms.length
+      ? m.synonyms.map((x, i) => `<span class="syn"><span>${esc(x)}</span><button type="button" class="syn-del" data-syn-del="${i}" aria-label="Remove synonym ${esc(x)}"${busy}>×</button></span>`).join('')
+      : '<span class="muted">None yet. Anything you add here is also accepted as a meaning answer.</span>';
+    return `<div class="syn-list">${chips}</div>
+      <div class="syn-add"><input type="text" class="mat-in" data-syn-input maxlength="100" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Add a synonym" aria-label="Add a synonym"${busy}>
+        <button type="button" class="btn ghost small" data-syn-add${busy}>Add</button></div>
+      <label class="mat-label">Meaning note<textarea class="mat-in" data-note="meaning_note" rows="2" maxlength="5000" placeholder="Your own note on the meaning"${busy}>${esc(m.meaning_note)}</textarea></label>
+      ${hasReading ? `<label class="mat-label">Reading note<textarea class="mat-in" data-note="reading_note" rows="2" maxlength="5000" placeholder="Your own note on the reading"${busy}>${esc(m.reading_note)}</textarea></label>` : ''}
+      <div class="mat-foot"><button type="button" class="btn ghost small" data-note-save${busy}>Save notes</button><span class="mat-status${status && status.error ? ' bad' : ''}" role="status">${esc((status && status.text) || '')}</span></div>`;
+  }
+
+  function redrawMat(id, status) {
+    document.querySelectorAll(`.mat-box[data-mat="${id}"]`).forEach((box) => {
+      // Keep what is typed in the other fields while one part is saved.
+      const typed = {};
+      box.querySelectorAll('[data-note]').forEach((t) => { typed[t.dataset.note] = t.value; });
+      const keepSyn = (box.querySelector('[data-syn-input]') || {}).value || '';
+      const s = api.subjectCache.get(id);
+      if (!s) return;
+      box.innerHTML = matHTML(s, status);
+      box.querySelectorAll('[data-note]').forEach((t) => { if (t.dataset.note in typed) t.value = typed[t.dataset.note]; });
+      const inp = box.querySelector('[data-syn-input]');
+      if (inp) inp.value = keepSyn;
+    });
+  }
+
+  async function matSave(id, patch, doneText) {
+    if (matBusy.has(id)) return false;
+    matBusy.add(id);
+    redrawMat(id, { text: 'Saving…' });
+    try {
+      await Local.saveMaterial(id, patch);
+      matBusy.delete(id);
+      redrawMat(id, { text: doneText });
+      window.dispatchEvent(new Event('kl-materials'));
+      return true;
+    } catch (e) {
+      matBusy.delete(id);
+      redrawMat(id, { text: (e && e.message) || 'Could not save.', error: true });
+      return false;
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const box = e.target.closest('.mat-box');
+    if (!box) return;
+    const id = Number(box.dataset.mat);
+    const del = e.target.closest('[data-syn-del]');
+    if (del) {
+      const list = Local.material(id).synonyms;
+      list.splice(Number(del.dataset.synDel), 1);
+      matSave(id, { synonyms: list }, 'Synonym removed.');
+      return;
+    }
+    if (e.target.closest('[data-syn-add]')) addSynonym(box, id);
+    else if (e.target.closest('[data-note-save]')) saveNotes(box, id);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('[data-syn-input]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    addSynonym(e.target.closest('.mat-box'), Number(e.target.closest('.mat-box').dataset.mat));
+  });
+
+  async function addSynonym(box, id) {
+    const input = box.querySelector('[data-syn-input]');
+    const word = input.value.replace(/\s+/g, ' ').trim();
+    if (!word) return;
+    const list = Local.material(id).synonyms;
+    if (list.some((x) => x.toLowerCase() === word.toLowerCase())) { redrawMat(id, { text: 'You already have that synonym.', error: true }); return; }
+    list.push(word);
+    const ok = await matSave(id, { synonyms: list }, 'Synonym added.');
+    if (ok) document.querySelectorAll(`.mat-box[data-mat="${id}"] [data-syn-input]`).forEach((i) => { i.value = ''; });
+  }
+
+  function saveNotes(box, id) {
+    const patch = {};
+    box.querySelectorAll('[data-note]').forEach((t) => { patch[t.dataset.note] = t.value.trim(); });
+    matSave(id, patch, 'Notes saved.');
   }
 
   // ---------- modal ----------
@@ -773,6 +862,9 @@
   }
 
   // ---------- quiz engine (reviews and the lesson quiz) ----------
+  /** Your synonyms for an item right now, so ones added in the details during a session count immediately. */
+  const liveSynonyms = (item) => Local.synonyms([item.subject.id]).get(item.subject.id) || item.synonyms || [];
+
   function makeItem(assignment, subject, synonyms) {
     const meaningOnly = subject.object === 'radical' || subject.object === 'kana_vocabulary';
     return { assignment, subject, synonyms: synonyms || [], pending: meaningOnly ? ['meaning'] : ['meaning', 'reading'], incorrect: { meaning: 0, reading: 0 } };
@@ -935,12 +1027,14 @@
     function submit() {
       const input = $('#q-input');
       const { item, kind } = st.cur;
-      const res = kind === 'meaning' ? Check.meaning(item.subject, item.synonyms, input.value) : Check.reading(item.subject, input.value);
+      const res = kind === 'meaning' ? Check.meaning(item.subject, liveSynonyms(item), input.value) : Check.reading(item.subject, input.value);
       if (res.invalid) {
         msg(res.invalid, true);
         input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
         return;
       }
+      // A reading is shown the way it was judged: romaji and a trailing n become kana, stray symbols are gone.
+      if (kind === 'reading' && res.kana) input.value = res.kana;
       st.undo = {
         item, kind, value: input.value, pending: item.pending.slice(), incorrect: Object.assign({}, item.incorrect),
         answered: st.answered, correct: st.correct, lastCorrect: st.lastCorrect,
@@ -1078,7 +1172,7 @@
 
       let accepted;
       if (kind === 'meaning') {
-        accepted = d.meanings.filter((m) => m.accepted_answer).map((m) => m.meaning).concat(item.synonyms);
+        accepted = d.meanings.filter((m) => m.accepted_answer).map((m) => m.meaning).concat(liveSynonyms(item));
       } else {
         accepted = (d.readings || []).filter((r) => r.accepted_answer).map((r) => r.reading);
       }
@@ -1096,6 +1190,8 @@
       if (UI.anyDialogOpen() || st.phase !== 'feedback') return;
       // Holding Enter must not repeat through the feedback card.
       if (e.key === 'Enter' && e.repeat) { e.preventDefault(); return; }
+      // Typing in a synonym or note box in the details must not trigger the answer undo.
+      if (e.target && e.target.closest && e.target.closest('.mat-box')) return;
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
     };
     const onHide = () => { if (document.visibilityState === 'hidden') commit(); };

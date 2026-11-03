@@ -58,23 +58,39 @@
     return { correct: false };
   }
 
-  function reading(subject, raw) {
+  // Only kana (and the long-vowel mark) can be part of a reading. Latin letters survive this step so that
+  // romaji which could not be converted is reported instead of being silently dropped.
+  const NOT_KANA = /[^\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fc\u30fd\u30fea-z]/g;
+
+  /**
+   * What the person meant by a reading answer: romaji becomes kana (a trailing "n" becomes ん), katakana becomes
+   * hiragana, and everything that is not kana (symbols, digits, spaces, kanji, stray punctuation) is trimmed away.
+   */
+  function cleanReading(raw) {
     const K = root.Kana;
-    const kana = K.kataToHira(K.toKana(String(raw || '').trim(), true));
-    if (!kana) return { invalid: 'Type an answer first.' };
-    if (/[a-z]/i.test(kana)) return { invalid: 'Type the reading in kana. Romaji converts as you type.' };
+    const text = String(raw || '').normalize('NFKC').toLowerCase()
+      .replace(/[^a-z'\-\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fc\u30fd\u30fe]/g, ''); // drop symbols before converting, so they cannot split romaji
+    return K.kataToHira(K.toKana(text, true)).replace(NOT_KANA, '');
+  }
+
+  /** Returns {invalid:msg, kana?} (no penalty), or {correct:bool, kana}. `kana` is the cleaned-up answer. */
+  function reading(subject, raw) {
+    const kana = cleanReading(raw);
+    if (!String(raw || '').trim()) return { invalid: 'Type an answer first.' };
+    if (!kana) return { invalid: 'No kana found in that answer. Type the reading in kana (romaji converts as you type).' };
+    if (/[a-z]/.test(kana)) return { invalid: 'Type the reading in kana. Romaji converts as you type.', kana };
 
     const readings = subject.data.readings || [];
     const hit = readings.find((r) => r.reading === kana);
-    if (hit && hit.accepted_answer) return { correct: true };
+    if (hit && hit.accepted_answer) return { correct: true, kana };
     if (hit && subject.object === 'kanji') {
       const wanted = readings.find((r) => r.accepted_answer && r.primary) || readings.find((r) => r.accepted_answer);
       if (wanted && wanted.type && hit.type) {
-        return { invalid: 'This kanji wants its ' + TYPE_LABEL[wanted.type] + ' reading, not ' + TYPE_LABEL[hit.type] + '.' };
+        return { invalid: 'This kanji wants its ' + TYPE_LABEL[wanted.type] + ' reading, not ' + TYPE_LABEL[hit.type] + '.', kana };
       }
     }
-    return { correct: false };
+    return { correct: false, kana };
   }
 
-  root.Check = { norm, levenshtein, meaning, reading };
+  root.Check = { norm, levenshtein, meaning, reading, cleanReading };
 })(typeof window !== 'undefined' ? window : globalThis);
