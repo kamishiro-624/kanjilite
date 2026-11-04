@@ -1,5 +1,5 @@
-/* Optional sync of your plan and settings between devices, using Google sign-in and a small Firestore document
-   in your own Firebase project (see SYNC.md). Nothing here runs unless js/config.js is filled in.
+/* Optional sync of your plan and settings between devices, using Google or email-and-password sign-in and a small
+   Firestore document in your own Firebase project (see SYNC.md). Nothing here runs unless js/config.js is filled in.
 
    How it works without touching the rest of the app: localStorage writes to the app's own "kl_" keys are noticed
    (setItem/removeItem are wrapped), stamped with the time, and sent a few seconds later. A live listener on the
@@ -71,7 +71,7 @@
   let unwatch = null;
   const load = (src) => new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Could not load Google’s sign-in. Check your connection.'));
+    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Could not load the sign-in service. Check your connection.'));
     document.head.appendChild(s);
   });
 
@@ -79,7 +79,17 @@
     const c = (e && e.code) || '';
     if (c === 'permission-denied' || c === 'firestore/permission-denied') return 'The database refused the request. Check the Firestore rules in SYNC.md.';
     if (c === 'auth/unauthorized-domain') return 'Add this site’s address under Authentication, Settings, Authorized domains in Firebase.';
-    if (c === 'auth/operation-not-allowed') return 'Turn on Google as a sign-in method in Firebase.';
+    if (c === 'auth/operation-not-allowed') return 'This sign-in method is not turned on. In Firebase, open Authentication, Sign-in method and enable it (Google, Email/Password).';
+    if (c === 'auth/invalid-email') return 'That does not look like a valid email address.';
+    if (c === 'auth/missing-email') return 'Enter your email address.';
+    if (c === 'auth/missing-password') return 'Enter your password.';
+    if (c === 'auth/weak-password') return 'Choose a longer password (at least 8 characters).';
+    if (c === 'auth/email-already-in-use') return 'An account with this email already exists. Sign in instead (use Google if that is how you signed up).';
+    if (c === 'auth/user-not-found' || c === 'auth/wrong-password' || c === 'auth/invalid-credential' || c === 'auth/invalid-login-credentials') return 'That email and password do not match. If you signed up with Google, use Continue with Google.';
+    if (c === 'auth/user-disabled') return 'This account has been disabled.';
+    if (c === 'auth/too-many-requests') return 'Too many attempts. Wait a few minutes and try again, or reset your password.';
+    if (c === 'auth/network-request-failed') return 'Could not reach the sign-in service. Check your connection.';
+    if (c === 'auth/requires-recent-login') return 'Please sign in again and retry.';
     if (c === 'unavailable' || c === 'firestore/unavailable' || /offline/i.test((e && e.message) || '')) return 'Could not reach the sync database. It will try again.';
     return (e && e.message) || 'Sync failed.';
   };
@@ -94,6 +104,12 @@
       Sync.syncNow();
     }, (e) => { state.error = friendly(e); emit(); });
   }
+
+  const userInfo = (u) => ({
+    uid: u.uid, email: u.email || '', name: u.displayName || '',
+    password: (u.providerData || []).some((p) => p && p.providerId === 'password'), // signed up with email and password
+    verified: u.emailVerified === true,
+  });
 
   function boot() {
     if (!configured) return Promise.reject(new Error('Sync is not set up. See SYNC.md.'));
@@ -110,7 +126,7 @@
       db = root.firebase.firestore();
       auth.getRedirectResult().catch(() => {});
       auth.onAuthStateChanged((u) => {
-        state.user = u ? { uid: u.uid, email: u.email || '', name: u.displayName || '' } : null;
+        state.user = u ? userInfo(u) : null;
         state.ready = true;
         if (u) { write(ON, '1'); watch(u.uid); } else if (unwatch) { unwatch(); unwatch = null; }
         emit();
@@ -215,6 +231,40 @@
       }
     },
 
+    /** Sign in with an existing email and password. Errors are thrown with a message fit to show; they are not kept as the sync error. */
+    async signInEmail(email, password, opts) {
+      state.error = '';
+      if (opts && opts.withToken && tokenAllowed) write(WITH_TOKEN, '1');
+      await boot();
+      try { await auth.signInWithEmailAndPassword(String(email || '').trim(), String(password || '')); } catch (e) { throw new Error(friendly(e)); }
+    },
+
+    /** Create an account with an email and password (and send a verification email), which also signs it in. */
+    async signUpEmail(email, password, opts) {
+      state.error = '';
+      if (opts && opts.withToken && tokenAllowed) write(WITH_TOKEN, '1');
+      await boot();
+      if (String(password || '').length < 8) throw new Error(friendly({ code: 'auth/weak-password' }));
+      let cred;
+      try { cred = await auth.createUserWithEmailAndPassword(String(email || '').trim(), String(password)); } catch (e) { throw new Error(friendly(e)); }
+      try { await cred.user.sendEmailVerification(); } catch (e) { /* the account exists; verification can be sent again from Settings */ }
+    },
+
+    /** Email a password-reset link. Says nothing about whether the address has an account. */
+    async resetPassword(email) {
+      await boot();
+      try { await auth.sendPasswordResetEmail(String(email || '').trim()); } catch (e) {
+        if (e && e.code === 'auth/user-not-found') return; // do not reveal which addresses have accounts
+        throw new Error(friendly(e));
+      }
+    },
+
+    /** Send the verification email again to the signed-in email account. */
+    async sendVerification() {
+      if (!auth || !auth.currentUser) return;
+      try { await auth.currentUser.sendEmailVerification(); } catch (e) { throw new Error(friendly(e)); }
+    },
+
     async signOut() {
       drop(ON);
       if (unwatch) { unwatch(); unwatch = null; }
@@ -268,6 +318,10 @@
   // Back on the tab or back online: check straight away. Leaving the tab: send what has not gone yet.
   document.addEventListener('visibilitychange', () => {
     if (!state.user) return;
+    if (document.visibilityState === 'visible' && auth && auth.currentUser && state.user.password && !state.user.verified) {
+      // they may have just clicked the link in the verification email
+      auth.currentUser.reload().then(() => { if (auth.currentUser && auth.currentUser.emailVerified) { state.user = userInfo(auth.currentUser); emit(); } }).catch(() => {});
+    }
     if (document.visibilityState === 'visible' && Date.now() - state.last > 30000) Sync.syncNow();
     else if (document.visibilityState === 'hidden' && dirty) Sync.syncNow();
   });

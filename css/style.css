@@ -684,9 +684,23 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .mat .mat-status.bad { color: #d6453d; }
 .mat [disabled] { opacity: .6; cursor: default; }
 
-/* sign in with Google, on the login screen */
+/* restoring from a sync account, on the login screen */
 .login-alt { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
 .login-alt .fine { margin-bottom: 10px; }
+
+/* sign-in form for sync (Google or email and password), in Settings and in its own dialog */
+.sy-auth { display: grid; gap: 6px; margin-top: 12px; }
+.sy-auth > .btn { width: 100%; }
+.sy-or { text-align: center; margin: 6px 0 0; font-size: .9rem; }
+.sy-auth form .field { justify-items: stretch; margin: 8px 0; }
+.sy-auth input[type=email], .sy-auth input[type=password] {
+  width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit;
+}
+.sy-auth [hidden] { display: none; }
+.sy-auth [data-sy=err]:empty, .sy-auth [data-sy=note]:empty { display: none; }
+.sy-note { color: var(--muted); margin: 8px 0 0; }
+.sy-actions { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-top: 12px; }
+.sy-auth [disabled] { opacity: .6; cursor: default; }
 
 /* sync button in the header */
 .sync-btn { display: inline-flex; align-items: center; gap: 6px; }

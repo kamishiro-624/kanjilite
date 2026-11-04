@@ -397,6 +397,99 @@
   };
 
   // ---------- sync across devices (optional, see SYNC.md) ----------
+  // The sign-in form: Google, or an email and password (create an account, sign in, reset a forgotten password).
+  // It is used inside Settings and in a small dialog opened from the header, the home banner and the login screen.
+  let syAuthN = 0;
+  function syncAuthHTML() {
+    const n = ++syAuthN;
+    return `<div class="sy-auth">
+      <button class="btn ghost" type="button" data-sy="google">Continue with Google</button>
+      <p class="muted sy-or">or use your email address</p>
+      <form data-sy="form" novalidate>
+        <div class="field"><label for="sy-email-${n}">Email</label>
+          <input id="sy-email-${n}" data-sy="email" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" inputmode="email"></div>
+        <div class="field"><label for="sy-pass-${n}">Password</label>
+          <input id="sy-pass-${n}" data-sy="pass" type="password" autocomplete="current-password">
+          <span class="muted" data-sy="hint" hidden>At least 8 characters.</span></div>
+        <div class="error" data-sy="err" role="alert"></div>
+        <p class="sy-note" data-sy="note" role="status"></p>
+        <div class="sy-actions">
+          <button class="btn small" type="submit" data-sy="submit">Sign in</button>
+          <button class="link inline" type="button" data-sy="mode">Create an account</button>
+          <button class="link inline" type="button" data-sy="forgot">Forgot password?</button>
+        </div>
+      </form>
+    </div>`;
+  }
+
+  /** Wire up a form made by syncAuthHTML(). opts: { withToken, onDone } (onDone runs once someone is signed in). */
+  function bindSyncAuth(root, opts) {
+    opts = opts || {};
+    const q = (name) => root.querySelector(`[data-sy="${name}"]`);
+    const form = q('form'), err = q('err'), note = q('note'), emailEl = q('email'), passEl = q('pass');
+    const signOpts = opts.withToken ? { withToken: true } : undefined;
+    let creating = false;
+
+    const busy = (on) => root.querySelectorAll('button, input').forEach((el) => { el.disabled = on; });
+    const paint = () => {
+      q('submit').textContent = creating ? 'Create account' : 'Sign in';
+      q('mode').textContent = creating ? 'I already have an account' : 'Create an account';
+      q('forgot').hidden = creating;
+      q('hint').hidden = !creating;
+      passEl.autocomplete = creating ? 'new-password' : 'current-password';
+      err.textContent = ''; note.textContent = '';
+    };
+    const finish = async () => { if (Sync.status().user && opts.onDone) await opts.onDone(); };
+    paint();
+
+    q('google').onclick = async () => {
+      err.textContent = ''; note.textContent = '';
+      busy(true);
+      try { wantsRefresh(); await Sync.signIn(signOpts); await finish(); } catch (e) { err.textContent = (e && e.message) || 'Could not sign in.'; }
+      busy(false);
+    };
+    q('mode').onclick = () => { creating = !creating; paint(); };
+    q('forgot').onclick = async () => {
+      err.textContent = ''; note.textContent = '';
+      const email = emailEl.value.trim();
+      if (!email) { err.textContent = 'Enter your email address above first.'; emailEl.focus(); return; }
+      busy(true);
+      try {
+        await Sync.resetPassword(email);
+        note.textContent = `If an account exists for ${email}, an email with a link to choose a new password is on its way.`;
+      } catch (e) { err.textContent = (e && e.message) || 'Could not send the email.'; }
+      busy(false);
+    };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      err.textContent = ''; note.textContent = '';
+      const email = emailEl.value.trim(), pw = passEl.value;
+      if (!email) { err.textContent = 'Enter your email address.'; emailEl.focus(); return; }
+      if (!pw) { err.textContent = 'Enter your password.'; passEl.focus(); return; }
+      busy(true);
+      try {
+        wantsRefresh();
+        if (creating) await Sync.signUpEmail(email, pw, signOpts); else await Sync.signInEmail(email, pw, signOpts);
+        await finish();
+      } catch (e2) { err.textContent = (e2 && e2.message) || 'Could not sign in.'; }
+      busy(false);
+    };
+  }
+
+  /** A small dialog with the sign-in form, for the places outside Settings. */
+  function openSyncDialog(opts) {
+    opts = opts || {};
+    Sync.preload();
+    openModal(`<h2>${esc(opts.title || 'Sign in to sync')}</h2>
+      <p class="muted">${esc(opts.intro || 'Keep your plan and settings the same on every device you use. Sign in with Google, or with an email address and password. They are stored in your own Firebase project, readable only by your account.')}</p>
+      ${syncAuthHTML()}`);
+    bindSyncAuth($('#modal-body .sy-auth'), {
+      withToken: opts.withToken,
+      onDone: async () => { dlg.close(); if (opts.onDone) await opts.onDone(); },
+    });
+    const first = $('#modal-body [data-sy=email]'); if (first) first.focus();
+  }
+
   function renderSyncCard() {
     const el = $('#s-sync');
     if (!el) return;
@@ -408,24 +501,28 @@
     Sync.preload();
     const when = st.last ? 'Last synced ' + new Date(st.last).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.' : '';
     if (!st.user) {
-      el.innerHTML = `<p class="muted">Sign in with Google to keep your plan and settings the same on every device you use. They are stored in your own Firebase project, readable only by your Google account.</p>
+      el.innerHTML = `<p class="muted">Sign in to keep your plan and settings the same on every device you use. They are stored in your own Firebase project, readable only by your account.</p>
         ${st.error ? `<p class="error">${esc(st.error)}</p>` : ''}
-        <button class="btn ghost small" id="s-sy-in" type="button">Sign in with Google</button>`;
-      $('#s-sy-in').onclick = async () => {
-        $('#s-sy-in').disabled = true;
-        await signInToSync();
-        renderSyncCard();
-      };
+        ${syncAuthHTML()}`;
+      bindSyncAuth(el.querySelector('.sy-auth'), { onDone: async () => renderSyncCard() });
     } else {
-      el.innerHTML = `<p class="muted">Signed in as ${esc(st.user.email || st.user.name || 'your Google account')}. Your plan and settings sync automatically. ${st.busy ? 'Syncing…' : esc(when)}</p>
+      const needsVerify = st.user.password && !st.user.verified;
+      el.innerHTML = `<p class="muted">Signed in as ${esc(st.user.email || st.user.name || 'your account')}. Your plan and settings sync automatically. ${st.busy ? 'Syncing…' : esc(when)}</p>
+        ${needsVerify ? '<p class="muted">Your email address is not verified yet. Open the link in the email we sent you. <button class="link inline" id="s-sy-verify" type="button">Send it again</button></p>' : ''}
         ${st.error ? `<p class="error">${esc(st.error)}</p>` : ''}
-        ${st.tokenAllowed ? UI.switchHTML('s-sy-token', st.withToken, 'Also sync my API token', 'Lets a new device sign in with Google alone. The token is stored in the sync database, so use this only if you are comfortable with that. Turning it off removes it from there.') : ''}
+        ${st.tokenAllowed ? UI.switchHTML('s-sy-token', st.withToken, 'Also sync my API token', 'Lets a new device restore everything by signing in to your account alone. The token is stored in the sync database, so use this only if you are comfortable with that. Turning it off removes it from there.') : ''}
         <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
           <button class="btn ghost small" id="s-sy-now" type="button"${st.busy ? ' disabled' : ''}>Check now</button>
           <button class="btn ghost small" id="s-sy-out" type="button">Sign out of sync</button>
           <button class="btn ghost small" id="s-sy-del" type="button">Delete my synced data</button>
         </div>`;
       const tk = $('#s-sy-token'); if (tk) tk.onchange = (e) => Sync.setTokenSync(e.target.checked);
+      const vf = $('#s-sy-verify');
+      if (vf) vf.onclick = async () => {
+        vf.disabled = true;
+        try { await Sync.sendVerification(); toast('Verification email sent.'); } catch (e) { toast((e && e.message) || 'Could not send it.'); }
+        vf.disabled = false;
+      };
       $('#s-sy-del').onclick = async () => {
         const ok = await UI.confirm({ title: 'Delete your synced data?', message: 'This removes your plan and settings from the sync database and turns sync off on this device. Nothing on this device is deleted.', ok: 'Delete', danger: true });
         if (!ok) return;
@@ -435,10 +532,15 @@
       $('#s-sy-now').onclick = () => Sync.syncNow();
       $('#s-sy-out').onclick = async () => { await Sync.signOut(); renderSyncCard(); };
     }
+    renderSyncCard.uid = st.user ? st.user.uid : '';
     // Keep the card current while the dialog is open (a sync finishing, an error, signing in).
     if (!renderSyncCard.off) {
       renderSyncCard.off = Sync.on(() => {
         if (!$('#s-sync')) { renderSyncCard.off(); renderSyncCard.off = null; return; }
+        // Do not rebuild the sign-in form under someone who is typing in it (unless they have just signed in or out).
+        const ae = document.activeElement;
+        const nowUid = (Sync.status().user || {}).uid || '';
+        if (ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('#s-sync') && nowUid === renderSyncCard.uid) return;
         if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#s-sync') && document.activeElement.id === 's-sy-token') return;
         renderSyncCard();
       });
@@ -476,11 +578,8 @@
   dlg.addEventListener('close', () => setTimeout(flushRefresh, 0));
   document.addEventListener('focusout', () => setTimeout(flushRefresh, 400));
 
-  // Sign in from anywhere (header, home banner, settings). The Google window opens straight from the click.
-  async function signInToSync() {
-    wantsRefresh();
-    try { await Sync.signIn(); } catch (e) { toast((e && e.message) || 'Could not sign in.'); }
-  }
+  // Sign in from the header or the home banner: a small dialog with the Google and email options.
+  function signInToSync() { openSyncDialog(); }
 
   function paintSyncButton() {
     const b = $('#sync-btn');
@@ -488,7 +587,7 @@
     if (!Sync.configured) { b.hidden = true; return; }
     b.hidden = false;
     const st = Sync.status();
-    let state = 'off', long = 'Sign in to sync', short = 'Sync', tip = 'Sign in with Google to keep your plan and settings the same on all your devices.';
+    let state = 'off', long = 'Sign in to sync', short = 'Sync', tip = 'Sign in to keep your plan and settings the same on all your devices.';
     if (st.user) {
       if (st.error) { state = 'error'; long = 'Sync error'; tip = st.error; }
       else if (st.busy) { state = 'busy'; long = 'Syncing…'; tip = 'Syncing your plan and settings.'; }
@@ -766,23 +865,23 @@
         <button class="btn" style="margin-top:14px" type="submit">Connect</button>
         <div class="error" id="login-err">${esc(msg || '')}</div>
       </form>
-      ${Sync.configured && Sync.status().tokenAllowed ? '<div class="login-alt"><p class="fine">Already use KanjiLite on another device?</p><button class="btn ghost" id="login-google" type="button">Sign in with Google to restore</button></div>' : ''}
+      ${Sync.configured && Sync.status().tokenAllowed ? '<div class="login-alt"><p class="fine">Already use KanjiLite on another device?</p><button class="btn ghost" id="login-google" type="button">Sign in to restore</button></div>' : ''}
       <p class="fine">Create a token under <a href="https://www.wanikani.com/settings/personal_access_tokens" target="_blank" rel="noopener">Settings, Personal Access Tokens</a> on WaniKani. Tick <b>assignments:start</b> and <b>reviews:create</b> so your lessons and reviews are saved. The token stays in this browser and is only sent to api.wanikani.com.</p>
     </div>`;
     const lg = $('#login-google');
     if (lg) {
       Sync.preload();
-      lg.onclick = async () => {
-        lg.disabled = true;
-        try {
-          wantsRefresh();
-          await Sync.signIn({ withToken: true });
+      lg.onclick = () => openSyncDialog({
+        title: 'Restore from your account',
+        intro: 'Sign in with the Google or email account you use for sync. Your API token comes back with it if you chose to sync it.',
+        withToken: true,
+        onDone: async () => {
           await Sync.syncNow();
           if (api.token) { go('#/'); return; }
-          $('#login-err').textContent = 'Signed in, but no API token was saved with your account. Paste it above; turn on “Also sync my API token” in Settings to save it.';
-        } catch (err) { $('#login-err').textContent = err.message; }
-        lg.disabled = false;
-      };
+          const le = $('#login-err');
+          if (le) le.textContent = 'Signed in, but no API token was saved with your account. Paste it above; turn on “Also sync my API token” in Settings to save it.';
+        },
+      });
     }
     $('#login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -845,7 +944,7 @@
       app.innerHTML = `<div class="wrap">
         <div class="greet"><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
         ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
-        ${syncHint ? '<div class="banner info">Keep your plan and settings the same on all your devices. <button class="link" id="sync-hint-in" type="button">Sign in with Google</button> <button class="link" id="sync-hint-x" type="button">Not now</button></div>' : ''}
+        ${syncHint ? '<div class="banner info">Keep your plan and settings the same on all your devices. <button class="link" id="sync-hint-in" type="button">Sign in</button> <button class="link" id="sync-hint-x" type="button">Not now</button></div>' : ''}
         ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
         <div id="dash-plan">${planHtml}</div>
         <div id="dash-today">${todayHtml}</div>
