@@ -683,3 +683,7 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .mat .mat-status { font-size: .9rem; color: var(--muted); }
 .mat .mat-status.bad { color: #d6453d; }
 .mat [disabled] { opacity: .6; cursor: default; }
+
+/* sign in with Google, on the login screen */
+.login-alt { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
+.login-alt .fine { margin-bottom: 10px; }

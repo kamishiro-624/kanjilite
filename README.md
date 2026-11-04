@@ -48,6 +48,10 @@ To try it locally, run `python3 -m http.server` in this folder and open http://l
 2. Tick **assignments:start** and **reviews:create**. Without them you can browse but lessons and reviews cannot be saved. Also tick **study_materials:create** and **study_materials:update** if you want to add synonyms and notes to items (they are saved on WaniKani).
 3. Paste the token into KanjiLite. It is stored in your browser's local storage and only ever sent to `api.wanikani.com`.
 
+Your plan and settings are kept in this browser too. If the browser clears its data they are lost, so Settings has **Back up and restore**: save a file and load it again later (the token is only included if you tick the box).
+
+To use the same plan and settings on several devices, see [SYNC.md](SYNC.md) (Google sign-in, free, about five minutes; it also covers protecting a copy that other people use).
+
 Treat the token like a password. Anyone who uses KanjiLite on a shared computer should log out (Settings, Log out).
 
 ## Files
@@ -58,6 +62,8 @@ sw.js                 Service worker: shows review notifications and focuses the
 css/
   style.css           Styles, light and dark
 js/
+  config.js           Optional Firebase details for sync (empty by default)
+  sync.js             Optional sync of plan and settings through Google sign-in and Firestore
   app.js              Routing, dashboard, lessons, reviews, level browser, settings
   data/
     api.js            WaniKani API wrapper: request pacing, 429 handling, pagination, IndexedDB access, upload queues

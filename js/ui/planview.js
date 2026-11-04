@@ -157,7 +157,8 @@
       if (sv) sv.onclick = () => {
         saved = { target: st.target, end: st.end, start: Date.now(), startPos: level + frac, lpd: Math.round(p.lessonsPerDay * 10) / 10, rpd: Math.round(p.reviewsAvg) };
         Plan.save(uid, saved);
-        o.toast('Plan saved. The dashboard will tell you if you fall behind.');
+        if (window.Keep) Keep.request();
+        o.toast('Plan saved. The dashboard will tell you if you fall behind. Settings has a backup file for it.');
         update();
       };
       const cl = $('#plan-clear');

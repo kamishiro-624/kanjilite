@@ -346,6 +346,111 @@
     if (t) openSubject(Number(t.dataset.subject));
   });
 
+  // ---------- keeping your data ----------
+  /** Ask the browser not to evict this site's data (plan, settings, saved copy) when it clears space. */
+  const Keep = {
+    async request() {
+      try { if (navigator.storage && navigator.storage.persist && !(await navigator.storage.persisted())) await navigator.storage.persist(); } catch (e) { /* not supported */ }
+    },
+    async status() {
+      try {
+        if (!(navigator.storage && navigator.storage.persisted)) return '';
+        return (await navigator.storage.persisted())
+          ? 'This browser has agreed to keep KanjiLite’s data.'
+          : 'This browser may still clear KanjiLite’s data (for example in private windows or when it frees space). A backup file is the safe way to keep your plan.';
+      } catch (e) { return ''; }
+    },
+  };
+  window.Keep = Keep;
+
+  /** A file with your plan and settings (and, only if asked, your token) that can be loaded back later. */
+  const Backup = {
+    skip: (k) => (window.Sync ? Sync.isVolatile(k) : /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed)$|kl_kanji_total_)/.test(k)),
+    save(withToken) {
+      const data = {};
+      Object.keys(localStorage).filter((k) => k.startsWith('kl_') && !Backup.skip(k) && (withToken || k !== 'kl_token')).forEach((k) => { data[k] = localStorage.getItem(k); });
+      const blob = new Blob([JSON.stringify({ app: 'kanjilite', v: 1, saved: new Date().toISOString(), data }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `kanjilite-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast(withToken ? 'Backup saved. It contains your API token, so keep it private.' : 'Backup saved.');
+    },
+    async restore(file) {
+      let parsed;
+      try { parsed = JSON.parse(await file.text()); } catch (e) { parsed = null; }
+      const entries = parsed && parsed.app === 'kanjilite' && parsed.data && typeof parsed.data === 'object'
+        ? Object.entries(parsed.data).filter(([k, v]) => k.startsWith('kl_') && !Backup.skip(k) && typeof v === 'string')
+        : null;
+      if (!entries || !entries.length) { toast('That file is not a KanjiLite backup.'); return; }
+      const ok = await UI.confirm({
+        title: 'Restore this backup?',
+        message: 'Your plan and settings in this browser will be replaced by the ones in the file' + (entries.some(([k]) => k === 'kl_token') ? ', and you will be logged in with the token it contains' : '') + '.',
+        ok: 'Restore',
+      });
+      if (!ok) return;
+      try { entries.forEach(([k, v]) => localStorage.setItem(k, v)); } catch (e) { toast('The browser would not let KanjiLite save that.'); return; }
+      toast('Backup restored.');
+      setTimeout(() => location.reload(), 600);
+    },
+  };
+
+  // ---------- sync across devices (optional, see SYNC.md) ----------
+  function renderSyncCard() {
+    const el = $('#s-sync');
+    if (!el) return;
+    const st = Sync.status();
+    if (!st.configured) {
+      el.innerHTML = '<p class="muted">Not set up. Add your Firebase details to <b>js/config.js</b> (the steps are in SYNC.md) to keep your plan and settings in step across your devices.</p>';
+      return;
+    }
+    Sync.preload();
+    const when = st.last ? 'Last synced ' + new Date(st.last).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.' : '';
+    if (!st.user) {
+      el.innerHTML = `<p class="muted">Sign in with Google to keep your plan and settings the same on every device you use. They are stored in your own Firebase project, readable only by your Google account.</p>
+        ${st.error ? `<p class="error">${esc(st.error)}</p>` : ''}
+        <button class="btn ghost small" id="s-sy-in" type="button">Sign in with Google</button>`;
+      $('#s-sy-in').onclick = async () => {
+        $('#s-sy-in').disabled = true;
+        try { await Sync.signIn(); } catch (e) { /* shown through the status */ }
+        renderSyncCard();
+      };
+    } else {
+      el.innerHTML = `<p class="muted">Signed in as ${esc(st.user.email || st.user.name || 'your Google account')}. ${st.busy ? 'Syncing…' : esc(when)}</p>
+        ${st.error ? `<p class="error">${esc(st.error)}</p>` : ''}
+        ${st.tokenAllowed ? UI.switchHTML('s-sy-token', st.withToken, 'Also sync my API token', 'Lets a new device sign in with Google alone. The token is stored in the sync database, so use this only if you are comfortable with that. Turning it off removes it from there.') : ''}
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn ghost small" id="s-sy-now" type="button"${st.busy ? ' disabled' : ''}>Sync now</button>
+          <button class="btn ghost small" id="s-sy-out" type="button">Sign out of sync</button>
+          <button class="btn ghost small" id="s-sy-del" type="button">Delete my synced data</button>
+        </div>`;
+      const tk = $('#s-sy-token'); if (tk) tk.onchange = (e) => Sync.setTokenSync(e.target.checked);
+      $('#s-sy-del').onclick = async () => {
+        const ok = await UI.confirm({ title: 'Delete your synced data?', message: 'This removes your plan and settings from the sync database and turns sync off on this device. Nothing on this device is deleted.', ok: 'Delete', danger: true });
+        if (!ok) return;
+        try { await Sync.deleteData(); toast('Your synced data was deleted.'); } catch (e) { toast((e && e.message) || 'Could not delete it.'); }
+        renderSyncCard();
+      };
+      $('#s-sy-now').onclick = () => Sync.syncNow();
+      $('#s-sy-out').onclick = async () => { await Sync.signOut(); renderSyncCard(); };
+    }
+    // Keep the card current while the dialog is open (a sync finishing, an error, signing in).
+    if (!renderSyncCard.off) {
+      renderSyncCard.off = Sync.on(() => {
+        if (!$('#s-sync')) { renderSyncCard.off(); renderSyncCard.off = null; return; }
+        if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#s-sync') && document.activeElement.id === 's-sy-token') return;
+        renderSyncCard();
+      });
+    }
+  }
+
+  // New data arrived from another device: show it, unless that would interrupt a quiz or the open dialog.
+  window.addEventListener('kl-synced', () => {
+    if (!api.token || dlg.open || /^#\/?(reviews|lessons)/.test(location.hash)) return;
+    route();
+  });
+
   // ---------- settings ----------
   const setSessionSize = (v) => {
     localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
@@ -384,6 +489,17 @@
             ${UI.stepperHTML('s-notify-min', Notify.minReviews(), { min: 1, max: 500, step: 1, label: 'Minimum reviews for a notification' })}</div>
           <p class="muted" id="s-notify-status">${esc(Notify.statusText())}</p>
           <button class="btn ghost small" id="s-notify-test" type="button">Send a test notification</button>
+        </section>
+        <section class="setcard"><h3>Sync across devices</h3><div id="s-sync"></div></section>
+        <section class="setcard"><h3>Back up and restore</h3>
+          <p class="muted">Your plan and settings live in this browser. If the browser clears its data they go with it, so keep a copy to restore from.</p>
+          ${UI.switchHTML('s-bk-token', false, 'Include my API token in the file', 'The file would then give access to your WaniKani account, within the permissions of your token. Keep it private.')}
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn ghost small" id="s-bk-save" type="button">Save backup file</button>
+            <button class="btn ghost small" id="s-bk-load" type="button">Restore from file</button>
+            <input type="file" id="s-bk-file" accept="application/json,.json" hidden>
+          </div>
+          <p class="muted" id="s-bk-status" style="margin-top:8px"></p>
         </section>
         <section class="setcard"><h3>Account</h3>
           <p class="muted">Your token is stored only in this browser and sent only to WaniKani.</p>
@@ -461,6 +577,11 @@
       if (Notify.permission() !== 'granted') { const p = await Notify.enable(); $('#s-notify').checked = Notify.enabled(); nStatus(); if (p !== 'granted') return; }
       if (!(await Notify.test())) toast('The browser wouldn’t show the notification.');
     };
+    renderSyncCard();
+    $('#s-bk-save').onclick = () => Backup.save($('#s-bk-token').checked);
+    $('#s-bk-load').onclick = () => $('#s-bk-file').click();
+    $('#s-bk-file').onchange = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) Backup.restore(f); };
+    Keep.status().then((t) => { const el = $('#s-bk-status'); if (el) el.textContent = t; });
     $('#s-logout').onclick = async () => {
       const left = api.pending().length + api.pendingStarts().length;
       const ok = await UI.confirm({
@@ -587,8 +708,23 @@
         <button class="btn" style="margin-top:14px" type="submit">Connect</button>
         <div class="error" id="login-err">${esc(msg || '')}</div>
       </form>
+      ${Sync.configured && Sync.status().tokenAllowed ? '<div class="login-alt"><p class="fine">Already use KanjiLite on another device?</p><button class="btn ghost" id="login-google" type="button">Sign in with Google to restore</button></div>' : ''}
       <p class="fine">Create a token under <a href="https://www.wanikani.com/settings/personal_access_tokens" target="_blank" rel="noopener">Settings, Personal Access Tokens</a> on WaniKani. Tick <b>assignments:start</b> and <b>reviews:create</b> so your lessons and reviews are saved. The token stays in this browser and is only sent to api.wanikani.com.</p>
     </div>`;
+    const lg = $('#login-google');
+    if (lg) {
+      Sync.preload();
+      lg.onclick = async () => {
+        lg.disabled = true;
+        try {
+          await Sync.signIn({ withToken: true });
+          await Sync.syncNow();
+          if (api.token) { go('#/'); return; }
+          $('#login-err').textContent = 'Signed in, but no API token was saved with your account. Paste it above; turn on “Also sync my API token” in Settings to save it.';
+        } catch (err) { $('#login-err').textContent = err.message; }
+        lg.disabled = false;
+      };
+    }
     $('#login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = e.target.querySelector('button');
@@ -596,6 +732,7 @@
       api.token = $('#tok').value.trim();
       try {
         await getUser(true);
+        Keep.request();
         go('#/');
       } catch (err) {
         api.token = '';
@@ -1398,5 +1535,6 @@
   });
 
   // ---------- go ----------
+  Sync.start();
   route();
 })();
