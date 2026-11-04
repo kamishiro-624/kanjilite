@@ -2,9 +2,10 @@
    in your own Firebase project (see SYNC.md). Nothing here runs unless js/config.js is filled in.
 
    How it works without touching the rest of the app: localStorage writes to the app's own "kl_" keys are noticed
-   (setItem/removeItem are wrapped), stamped with the time, and pushed a few seconds later. On start, on returning
-   to the tab and after sign-in, the document is read and, key by key, the newer side wins. Device-only things
-   (theme, notifications, caches, unsent reviews) never leave the device. The API token is synced only if asked. */
+   (setItem/removeItem are wrapped), stamped with the time, and sent a few seconds later. A live listener on the
+   document brings in changes made on other devices straight away, and the document is also checked on start,
+   when you come back to the tab and now and then. Setting by setting, the newer side wins. Device-only things
+   (theme, notifications, caches, unsent reviews) never leave the device. The API token syncs only if allowed. */
 (function (root) {
   'use strict';
 
@@ -17,7 +18,8 @@
   const WITH_TOKEN = 'kl_sync_token';
   const LAST = 'kl_sync_at';
   const DAYS = 'kl_rev_days';   // reviews per day: merged (larger count per day wins) instead of newest-wins
-  const PUSH_DELAY = 15000;
+  const PUSH_DELAY = 5000;
+  const CHECK_EVERY = 5 * 60 * 1000;
   const MAX_VALUE = 60000;      // longest value accepted from the database (the rules cap them much lower)
   const tokenAllowed = cfg.allowTokenSync === true;
 
@@ -27,7 +29,7 @@
     'kl_session_size', 'kl_lesson_batch', 'kl_b2b', 'kl_first', 'kl_show_level', 'kl_show_stage', 'kl_srs_toast', 'kl_autoplay', 'kl_wrong_delay'];
 
   // Never copied anywhere (also left out of backup files): caches, queues, rate-limit bookkeeping and this feature's own state.
-  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|sync_meta|sync_on|sync_token|sync_at)$|kl_kanji_total_)/.test(k);
+  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
 
   const raw = { get: Storage.prototype.getItem, set: Storage.prototype.setItem, del: Storage.prototype.removeItem };
   const read = (k) => { try { return raw.get.call(localStorage, k); } catch (e) { return null; } };
@@ -60,17 +62,39 @@
   try {
     Storage.prototype.setItem = function (k, v) { raw.set.call(this, k, v); if (this === root.localStorage) touch(String(k)); };
     Storage.prototype.removeItem = function (k) { raw.del.call(this, k); if (this === root.localStorage) touch(String(k)); };
-  } catch (e) { /* cannot watch changes; manual "Sync now" still works */ }
+  } catch (e) { /* cannot watch changes; the periodic check still works */ }
 
   // ---- Firebase, loaded only when needed ----
   let auth = null;
   let db = null;
   let booting = null;
+  let unwatch = null;
   const load = (src) => new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Could not load Google’s sign-in. Check your connection.'));
     document.head.appendChild(s);
   });
+
+  const friendly = (e) => {
+    const c = (e && e.code) || '';
+    if (c === 'permission-denied' || c === 'firestore/permission-denied') return 'The database refused the request. Check the Firestore rules in SYNC.md.';
+    if (c === 'auth/unauthorized-domain') return 'Add this site’s address under Authentication, Settings, Authorized domains in Firebase.';
+    if (c === 'auth/operation-not-allowed') return 'Turn on Google as a sign-in method in Firebase.';
+    if (c === 'unavailable' || c === 'firestore/unavailable' || /offline/i.test((e && e.message) || '')) return 'Could not reach the sync database. It will try again.';
+    return (e && e.message) || 'Sync failed.';
+  };
+
+  // Changes made on another device arrive here at once instead of waiting for the next check.
+  function watch(uid) {
+    if (unwatch) { unwatch(); unwatch = null; }
+    let first = true;
+    unwatch = db.collection('users').doc(uid).onSnapshot((snap) => {
+      if (first) { first = false; return; }                              // the start-up sync covers this one
+      if (snap.metadata.fromCache || snap.metadata.hasPendingWrites) return; // our own write, or not from the server
+      Sync.syncNow();
+    }, (e) => { state.error = friendly(e); emit(); });
+  }
+
   function boot() {
     if (!configured) return Promise.reject(new Error('Sync is not set up. See SYNC.md.'));
     if (booting) return booting;
@@ -88,6 +112,7 @@
       auth.onAuthStateChanged((u) => {
         state.user = u ? { uid: u.uid, email: u.email || '', name: u.displayName || '' } : null;
         state.ready = true;
+        if (u) { write(ON, '1'); watch(u.uid); } else if (unwatch) { unwatch(); unwatch = null; }
         emit();
         if (u) Sync.syncNow();
       });
@@ -95,16 +120,8 @@
     return booting;
   }
 
-  const friendly = (e) => {
-    const c = (e && e.code) || '';
-    if (c === 'permission-denied' || c === 'firestore/permission-denied') return 'The database refused the request. Check the Firestore rules in SYNC.md.';
-    if (c === 'auth/unauthorized-domain') return 'Add this site’s address under Authentication, Settings, Authorized domains in Firebase.';
-    if (c === 'auth/operation-not-allowed') return 'Turn on Google as a sign-in method in Firebase.';
-    if (c === 'unavailable' || c === 'firestore/unavailable') return 'Could not reach the sync database. It will retry.';
-    return (e && e.message) || 'Sync failed.';
-  };
-
   const parse = (s) => { try { return JSON.parse(s) || {}; } catch (e) { return {}; } };
+  const sortedJSON = (o) => JSON.stringify(Object.keys(o).sort().reduce((x, k) => { x[k] = o[k]; return x; }, {}));
 
   function applyLocal(k, v, t) {
     applying = true;
@@ -112,11 +129,8 @@
     meta[k] = t;
   }
 
-  let syncing = false;
-  let again = false;
-  async function run() {
-    const ref = db.collection('users').doc(state.user.uid);
-    const snap = await ref.get();
+  /** Compare the stored document with this device, setting by setting. Returns what to send; fills `changedKeys` with what was taken. */
+  function reconcile(snap, changedKeys) {
     const got = (snap.exists && snap.data().data) || {};
     const remote = {};
     Object.keys(got).forEach((k) => {   // ignore anything that is not a plain, reasonably small setting
@@ -124,7 +138,6 @@
       if (isSynced(k) && r && typeof r.t === 'number' && (r.v === null || (typeof r.v === 'string' && r.v.length <= MAX_VALUE))) remote[k] = r;
     });
     const push = {};
-    let changed = false;
     const keys = new Set([...Object.keys(remote), ...Object.keys(meta)]);
     for (let i = 0; i < localStorage.length; i++) keys.add(localStorage.key(i));
 
@@ -138,15 +151,15 @@
         const a = parse(lv), b = parse(r && r.v);
         const m = Object.assign({}, b);
         Object.keys(a).forEach((d) => { m[d] = Math.max(m[d] || 0, a[d]); });
-        const out = JSON.stringify(m);
+        const out = sortedJSON(m);
         if (out === '{}' && !r) return;
-        if (out !== lv) { applyLocal(k, out, Date.now()); changed = true; }
-        if (!r || out !== r.v) { const t = Date.now(); meta[k] = t; push[k] = { v: out, t }; }
+        if (sortedJSON(a) !== out) { applyLocal(k, out, Date.now()); changedKeys.push(k); }
+        if (!r || sortedJSON(b) !== out) { const t = Date.now(); meta[k] = t; push[k] = { v: out, t }; }
         return;
       }
 
       if (r && r.t > lt) {                       // the other device changed it more recently
-        if (lv !== r.v) { applyLocal(k, r.v, r.t); changed = true; } else meta[k] = r.t;
+        if (lv !== r.v) { applyLocal(k, r.v, r.t); changedKeys.push(k); } else meta[k] = r.t;
       } else if (lv !== null && (!r || lt > r.t)) { // changed here (or never shared yet)
         const t = lt || Date.now();
         meta[k] = t;
@@ -155,16 +168,29 @@
         push[k] = { v: null, t: lt };
       }
     });
+    return push;
+  }
 
-    if (Object.keys(push).length) await ref.set({ data: push, updated: root.firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  let syncing = false;
+  let again = false;
+  async function run() {
+    const ref = db.collection('users').doc(state.user.uid);
+    const changedKeys = [];
+    // One transaction, so two devices syncing at the same moment cannot overwrite each other's newer change.
+    await db.runTransaction(async (tx) => {
+      changedKeys.length = 0;
+      const snap = await tx.get(ref);
+      const push = reconcile(snap, changedKeys);
+      if (Object.keys(push).length) tx.set(ref, { data: push, updated: root.firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    });
     saveMeta();
-    return changed;
+    return changedKeys.slice();
   }
 
   const Sync = {
     configured,
     isVolatile,
-    status: () => ({ configured, tokenAllowed, user: state.user, busy: state.busy, error: state.error, last: state.last, ready: state.ready, withToken: withToken() }),
+    status: () => ({ configured, tokenAllowed, user: state.user, busy: state.busy, error: state.error, last: state.last, ready: state.ready, withToken: withToken(), remembered: read(ON) === '1' }),
     on(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     /** Start loading Google's sign-in so a later click can open its window straight away. */
@@ -179,13 +205,11 @@
       await boot();
       const provider = new root.firebase.auth.GoogleAuthProvider();
       try {
-        write(ON, '1');
         await auth.signInWithPopup(provider);
       } catch (e) {
         const c = (e && e.code) || '';
-        if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') { drop(ON); return; }
-        if (c === 'auth/popup-blocked' || c === 'auth/operation-not-supported-in-this-environment') { await auth.signInWithRedirect(provider); return; }
-        drop(ON);
+        if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return;
+        if (c === 'auth/popup-blocked' || c === 'auth/operation-not-supported-in-this-environment') { write(ON, '1'); await auth.signInWithRedirect(provider); return; }
         state.error = friendly(e); emit();
         throw new Error(state.error);
       }
@@ -193,6 +217,7 @@
 
     async signOut() {
       drop(ON);
+      if (unwatch) { unwatch(); unwatch = null; }
       if (auth) await auth.signOut();
       state.user = null; emit();
     },
@@ -218,11 +243,12 @@
       await Sync.signOut();
     },
 
+    /** Bring this device and the database level. Resolves to the list of settings taken from the database. */
     async syncNow() {
-      if (!state.user || !db) return false;
-      if (syncing) { again = true; return false; }
+      if (!state.user || !db) return [];
+      if (syncing) { again = true; return []; }
       syncing = true; state.busy = true; state.error = ''; emit();
-      let changed = false;
+      let changed = [];
       try {
         changed = await run();
         dirty = false;
@@ -233,18 +259,20 @@
       } finally {
         syncing = false; state.busy = false; emit();
       }
-      if (changed) root.dispatchEvent(new Event('kl-synced'));
+      if (changed.length) root.dispatchEvent(new root.CustomEvent('kl-synced', { detail: { keys: changed } }));
       if (again) { again = false; Sync.syncNow(); }
       return changed;
     },
   };
 
-  // Back on the tab: pull what changed elsewhere. Leaving it: send what has not gone yet.
+  // Back on the tab or back online: check straight away. Leaving the tab: send what has not gone yet.
   document.addEventListener('visibilitychange', () => {
     if (!state.user) return;
-    if (document.visibilityState === 'visible' && Date.now() - state.last > 60000) Sync.syncNow();
+    if (document.visibilityState === 'visible' && Date.now() - state.last > 30000) Sync.syncNow();
     else if (document.visibilityState === 'hidden' && dirty) Sync.syncNow();
   });
+  root.addEventListener('online', () => { if (state.user) Sync.syncNow(); });
+  setInterval(() => { if (state.user && document.visibilityState === 'visible' && Date.now() - state.last > CHECK_EVERY) Sync.syncNow(); }, 60000);
 
   root.Sync = Sync;
 })(window);

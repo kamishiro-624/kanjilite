@@ -97,7 +97,7 @@ If only you use it, the steps above are enough. If other people use your copy, a
 ## Good to know
 
 - Each setting is synced separately and the most recent change wins. Daily review counts are merged, keeping the larger count for each day.
-- Changes are sent a few seconds after you make them and when you leave the tab, and fetched when you come back to it.
+- Changes are sent a few seconds after you make them and when you leave the tab. Changes from another device arrive within moments through a live connection, and the page refreshes to show them. It waits if you are in the middle of a review or lesson, have a dialog open or are typing.
 - Settings has **Delete my synced data**, which removes the person's document and stops syncing on that device.
 - You, as the project owner, can see every document in the console. It holds plans and settings only (and tokens only if you enable that option).
 - The values in `js/config.js` are not secrets; the rules above are what protect the data.

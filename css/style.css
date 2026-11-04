@@ -687,3 +687,14 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 /* sign in with Google, on the login screen */
 .login-alt { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
 .login-alt .fine { margin-bottom: 10px; }
+
+/* sync button in the header */
+.sync-btn { display: inline-flex; align-items: center; gap: 6px; }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.sync-btn[data-state="ok"] .sync-dot { background: #3a9d5d; }
+.sync-btn[data-state="busy"] .sync-dot { background: #d99a2b; animation: sync-pulse 1s ease-in-out infinite; }
+.sync-btn[data-state="error"] .sync-dot { background: #d6453d; }
+.sync-btn .sync-short { display: none; }
+@keyframes sync-pulse { 50% { opacity: .35; } }
+@media (max-width: 520px) { .sync-btn .sync-long { display: none; } .sync-btn .sync-short { display: inline; } }
+@media (prefers-reduced-motion: reduce) { .sync-btn[data-state="busy"] .sync-dot { animation: none; } }

@@ -413,15 +413,15 @@
         <button class="btn ghost small" id="s-sy-in" type="button">Sign in with Google</button>`;
       $('#s-sy-in').onclick = async () => {
         $('#s-sy-in').disabled = true;
-        try { await Sync.signIn(); } catch (e) { /* shown through the status */ }
+        await signInToSync();
         renderSyncCard();
       };
     } else {
-      el.innerHTML = `<p class="muted">Signed in as ${esc(st.user.email || st.user.name || 'your Google account')}. ${st.busy ? 'Syncing…' : esc(when)}</p>
+      el.innerHTML = `<p class="muted">Signed in as ${esc(st.user.email || st.user.name || 'your Google account')}. Your plan and settings sync automatically. ${st.busy ? 'Syncing…' : esc(when)}</p>
         ${st.error ? `<p class="error">${esc(st.error)}</p>` : ''}
         ${st.tokenAllowed ? UI.switchHTML('s-sy-token', st.withToken, 'Also sync my API token', 'Lets a new device sign in with Google alone. The token is stored in the sync database, so use this only if you are comfortable with that. Turning it off removes it from there.') : ''}
         <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
-          <button class="btn ghost small" id="s-sy-now" type="button"${st.busy ? ' disabled' : ''}>Sync now</button>
+          <button class="btn ghost small" id="s-sy-now" type="button"${st.busy ? ' disabled' : ''}>Check now</button>
           <button class="btn ghost small" id="s-sy-out" type="button">Sign out of sync</button>
           <button class="btn ghost small" id="s-sy-del" type="button">Delete my synced data</button>
         </div>`;
@@ -445,11 +445,69 @@
     }
   }
 
-  // New data arrived from another device: show it, unless that would interrupt a quiz or the open dialog.
-  window.addEventListener('kl-synced', () => {
-    if (!api.token || dlg.open || /^#\/?(reviews|lessons)/.test(location.hash)) return;
-    route();
+  // New data arrived from another device. Show it by refreshing the page, but never in the middle of a quiz,
+  // while a dialog is open or while you are typing: then it waits until you are done.
+  let pendingRefresh = null; // 'reload' | 'route'
+  let forceUntil = 0;
+  const inQuiz = () => /^#\/?(reviews|lessons)/.test(location.hash);
+  const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
+  const wantsRefresh = () => { forceUntil = Date.now() + 30000; }; // the person just signed in: show what arrived right away
+
+  function flushRefresh() {
+    if (!pendingRefresh || !api.token || inQuiz()) return;
+    const forced = Date.now() < forceUntil;
+    if (!forced && (dlg.open || typing())) return;
+    const kind = pendingRefresh;
+    pendingRefresh = null;
+    let recent = false;
+    try { recent = Date.now() - Number(sessionStorage.getItem('kl_reload_at') || 0) < 15000; } catch (e) { /* ignore */ }
+    if (kind === 'reload' && !recent) {
+      try { sessionStorage.setItem('kl_reload_at', String(Date.now())); } catch (e) { /* ignore */ }
+      location.reload();
+    } else if (!dlg.open) route();
+  }
+  window.addEventListener('kl-synced', (e) => {
+    const keys = (e.detail && e.detail.keys) || [];
+    // Only the review counts changed: redraw quietly. Anything else: reload so every screen shows it.
+    pendingRefresh = keys.some((k) => k !== 'kl_rev_days') ? 'reload' : (pendingRefresh || 'route');
+    flushRefresh();
   });
+  window.addEventListener('hashchange', () => setTimeout(flushRefresh, 0));
+  dlg.addEventListener('close', () => setTimeout(flushRefresh, 0));
+  document.addEventListener('focusout', () => setTimeout(flushRefresh, 400));
+
+  // Sign in from anywhere (header, home banner, settings). The Google window opens straight from the click.
+  async function signInToSync() {
+    wantsRefresh();
+    try { await Sync.signIn(); } catch (e) { toast((e && e.message) || 'Could not sign in.'); }
+  }
+
+  function paintSyncButton() {
+    const b = $('#sync-btn');
+    if (!b) return;
+    if (!Sync.configured) { b.hidden = true; return; }
+    b.hidden = false;
+    const st = Sync.status();
+    let state = 'off', long = 'Sign in to sync', short = 'Sync', tip = 'Sign in with Google to keep your plan and settings the same on all your devices.';
+    if (st.user) {
+      if (st.error) { state = 'error'; long = 'Sync error'; tip = st.error; }
+      else if (st.busy) { state = 'busy'; long = 'Syncing…'; tip = 'Syncing your plan and settings.'; }
+      else { state = 'ok'; long = 'Synced'; tip = 'Your plan and settings are kept in sync automatically. Open Settings to manage.'; }
+    } else if (st.remembered) { state = 'busy'; long = 'Sync'; tip = 'Connecting to sync…'; }
+    b.dataset.state = state;
+    b.querySelector('.sync-long').textContent = long;
+    b.querySelector('.sync-short').textContent = short;
+    b.title = tip;
+    b.setAttribute('aria-label', long === 'Sync' ? 'Sync' : long);
+  }
+  $('#sync-btn').addEventListener('click', () => {
+    const st = Sync.status();
+    if (!st.user && !st.remembered) { signInToSync(); return; }
+    openSettings();
+    setTimeout(() => { const el = $('#s-sync'); if (el) el.scrollIntoView({ block: 'center' }); }, 50);
+  });
+  if (Sync.configured) Sync.on(paintSyncButton);
+  paintSyncButton();
 
   // ---------- settings ----------
   const setSessionSize = (v) => {
@@ -717,6 +775,7 @@
       lg.onclick = async () => {
         lg.disabled = true;
         try {
+          wantsRefresh();
           await Sync.signIn({ withToken: true });
           await Sync.syncNow();
           if (api.token) { go('#/'); return; }
@@ -780,10 +839,13 @@
       shown = sig;
 
       const maxUp = Math.max(1, ...sd.upcoming.map((x) => x.count));
+      const syncSt = Sync.status();
+      const syncHint = Sync.configured && !syncSt.user && !syncSt.remembered && localStorage.getItem('kl_sync_hint') !== '0';
       const waiting = [pendR ? `<b>${pendR} finished review${pendR > 1 ? 's' : ''}</b>` : '', pendS ? `<b>${pendS} started lesson${pendS > 1 ? 's' : ''}</b>` : ''].filter(Boolean).join(' and ');
       app.innerHTML = `<div class="wrap">
         <div class="greet"><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
         ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
+        ${syncHint ? '<div class="banner info">Keep your plan and settings the same on all your devices. <button class="link" id="sync-hint-in" type="button">Sign in with Google</button> <button class="link" id="sync-hint-x" type="button">Not now</button></div>' : ''}
         ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
         <div id="dash-plan">${planHtml}</div>
         <div id="dash-today">${todayHtml}</div>
@@ -814,6 +876,13 @@
         const ok = await UI.confirm({ title: 'Discard this session?', message: 'Items you already finished are safe on WaniKani.', ok: 'Discard', danger: true });
         if (ok) { Session.clear(); draw(true); }
       };
+      const sin = $('#sync-hint-in');
+      if (sin) sin.onclick = () => {
+        const off = Sync.on(() => { if (Sync.status().user) { off(); draw(true); } });
+        signInToSync();
+      };
+      const sx = $('#sync-hint-x');
+      if (sx) sx.onclick = () => { localStorage.setItem('kl_sync_hint', '0'); draw(true); };
       const retry = $('#retry-sync');
       if (retry) retry.onclick = async () => {
         retry.disabled = true;
@@ -1536,5 +1605,6 @@
 
   // ---------- go ----------
   Sync.start();
+  Sync.preload();
   route();
 })();
