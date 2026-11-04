@@ -161,7 +161,7 @@
       if (sk.best) c.push(card(plural(sk.current, 'day'), 'review streak', `Longest: ${sk.best}`));
       if (D.rows) {
         const all = Stats.paceFor(ls.done, 'all');
-        c.push(card(all.n ? `${round1(all.mean)} days` : '–', 'per level, on average', all.n ? `over ${plural(all.n, 'level')}` : 'no finished levels yet'));
+        c.push(card(all.n ? `${round1(all.mean)} days` : '–', 'per level, typically', all.n ? `over ${plural(all.n, 'level')}${all.clipped ? `; ${plural(all.clipped, 'outlier')} counted for less` : ''}` : 'no finished levels yet'));
         if (ls.done.length) {
           const pool = ls.done.filter((d) => d.level > 2); // levels 1 and 2 are accelerated for everyone
           const list = pool.length ? pool : ls.done;

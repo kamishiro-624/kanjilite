@@ -320,41 +320,112 @@
 
   const fastestFor = (L) => (L <= 2 ? FAST_EARLY : FAST_NORMAL);
 
+  // ---- robust statistics: one very long (or very short) level must not move the pace
+
+  /** Value at quantile q (0..1) of an ascending list, interpolating between neighbours. */
+  function quantile(sorted, q) {
+    if (!sorted.length) return 0;
+    const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  }
+  const asc = (a) => a.slice().sort((x, y) => x - y);
+  const median = (a) => quantile(asc(a), 0.5);
+
   /**
-   * The pace a basis stands for. byLevel(L) gives { mean, low, high } days for level L, where low and high are the
-   * average of your quicker and your slower half of levels.
+   * Pull values that are far outside the rest in to a fence, rather than throwing them away: a 70-day level
+   * (a holiday, an illness) still counts as "a slow level", but only as much as a long one would. Needs at least
+   * three values to tell; with fewer, nothing is changed.
+   */
+  function tame(values) {
+    const sorted = asc(values);
+    const med = quantile(sorted, 0.5);
+    if (sorted.length < 3) return { values: values.slice(), clipped: 0, median: med };
+    let hi, lo;
+    if (sorted.length < 5) { hi = med * 1.75; lo = med / 1.75; }
+    else {
+      const q1 = quantile(sorted, 0.25), q3 = quantile(sorted, 0.75), iqr = q3 - q1;
+      hi = Math.max(q3 + 1.5 * iqr, med * 1.25);
+      lo = Math.min(q1 - 1.5 * iqr, med / 1.25);
+    }
+    let clipped = 0;
+    const out = values.map((v) => { const c = Math.min(hi, Math.max(lo, v)); if (c !== v) clipped++; return c; });
+    return { values: out, clipped, median: med };
+  }
+
+  /** Theil-Sen line through (x, y): the median of all pairwise slopes, so single odd points can't tilt it. */
+  function trendLine(xs, ys, shrink) {
+    const slopes = [];
+    for (let i = 0; i < xs.length; i++) for (let j = i + 1; j < xs.length; j++) if (xs[j] !== xs[i]) slopes.push((ys[j] - ys[i]) / (xs[j] - xs[i]));
+    const slope = (slopes.length ? median(slopes) : 0) * shrink;
+    return { slope, intercept: median(ys.map((y, i) => y - slope * xs[i])) };
+  }
+
+  /**
+   * The pace a basis stands for. byLevel(L) gives { mean, low, high } days for level L.
    * basis: all | last10 | last5 | custom | fastest. Levels 1 and 2 are accelerated for everyone, so they are left out
-   * of the average whenever later levels exist.
+   * whenever later levels exist.
+   *
+   * It works on how many times slower than the fastest possible each level was, so that:
+   *  - unusually long or short levels are pulled in to a fence (see tame) before averaging, so `mean` is a typical
+   *    level, not one dragged up by a single outlier (`rawMean` is the plain average, `clipped` how many were pulled in);
+   *  - with six or more levels, a robust trend line lets later levels differ from earlier ones (most people slow down
+   *    as the levels get bigger), instead of assuming every level takes the same time. The slope is held back
+   *    when there are few levels, and the result never goes below the fastest possible or above 2.5 times your typical;
+   *  - low and high are your quicker and slower levels (20th and 80th percentile), not the extremes.
    */
   function paceFor(done, basis, customDays) {
     const constant = (m, low, high) => ({ mean: m, low: low == null ? m : low, high: high == null ? m : high });
     if (basis === 'custom') {
       const d = Math.max(0.5, Number(customDays) || 10);
-      return { basis, n: 0, mean: d, low: d, high: d, fallback: false, byLevel: () => constant(d), label: `${fmt(d)} days per level (your own figure)` };
+      return { basis, n: 0, mean: d, low: d, high: d, fallback: false, clipped: 0, trend: 0, byLevel: () => constant(d), label: `${fmt(d)} days per level (your own figure)` };
     }
     const limit = { all: Infinity, last10: 10, last5: 5 }[basis];
     const regular = done.filter((d) => d.level > 2);
     const pool = regular.length ? regular : done;
     if (basis === 'fastest' || !pool.length) {
       return {
-        basis: 'fastest', n: 0, mean: FAST_NORMAL, low: FAST_NORMAL, high: FAST_NORMAL, fallback: basis !== 'fastest',
+        basis: 'fastest', n: 0, mean: FAST_NORMAL, low: FAST_NORMAL, high: FAST_NORMAL, fallback: basis !== 'fastest', clipped: 0, trend: 0,
         byLevel: (L) => constant(fastestFor(L)),
         label: `about ${FAST_NORMAL.toString().replace(/\.0$/, '')} days per level, the fastest WaniKani allows`,
       };
     }
-    const days = pool.slice(-Math.min(limit, pool.length)).map((d) => d.days);
-    const sorted = days.slice().sort((a, b) => a - b);
-    const half = Math.ceil(sorted.length / 2);
-    const m = mean(days);
-    const low = sorted.length > 1 ? mean(sorted.slice(0, half)) : m;
-    const high = sorted.length > 1 ? mean(sorted.slice(sorted.length - half)) : m;
+    const used = pool.slice(-Math.min(limit, pool.length));
+    const ratios = used.map((d) => Math.max(1, d.days / fastestFor(d.level)));
+    const t = tame(ratios);
+    const sorted = asc(t.values);
+    const med = quantile(sorted, 0.5) || 1;
+    const typical = mean(t.values);                       // typical slowdown, outliers pulled in
+    const lowR = sorted.length > 1 ? Math.min(1, quantile(sorted, 0.2) / med) : 1;
+    const highR = sorted.length > 1 ? Math.max(1, quantile(sorted, 0.8) / med) : 1;
+    const base = regular.length ? FAST_NORMAL : mean(used.map((d) => fastestFor(d.level)));
+    const m = typical * base;
+    const useTrend = used.length >= 6 && basis !== 'last5';
+    const line = useTrend ? trendLine(used.map((d) => d.level), t.values, used.length / (used.length + 8)) : null;
+    // Where the trend line sits at the middle of your levels, so that it stays centred on the typical value.
+    const mid = line ? median(used.map((d) => d.level)) : 0;
+    const ratioAt = (L) => {
+      if (!line) return typical;
+      const r = typical + line.slope * (L - mid);
+      return Math.min(2.5 * typical, Math.max(1, r));
+    };
+    const rawMean = mean(used.map((d) => d.days));
+    const n = used.length;
+    const trendNote = line && Math.abs(line.slope * base) >= 0.2 ? `, ${line.slope > 0 ? 'getting slower' : 'getting quicker'} by about ${fmt(Math.abs(line.slope * base))} days with each level` : '';
     return {
-      basis, n: days.length, mean: m, low, high, fallback: false, byLevel: () => constant(m, low, high),
-      label: `${fmt(m)} days per level, the average of ${basis === 'all' ? 'all ' : 'your last '}${days.length} finished level${days.length === 1 ? '' : 's'}`,
+      basis, n, mean: m, rawMean, low: m * lowR, high: m * highR, fallback: false, clipped: t.clipped, trend: line ? line.slope * base : 0,
+      byLevel: (L) => { const r = ratioAt(L), f = fastestFor(L); return constant(f * r, f * r * lowR, f * r * highR); },
+      label: `${fmt(m)} days per level, typical of ${basis === 'all' ? 'all ' : 'your last '}${n} finished level${n === 1 ? '' : 's'}${t.clipped ? ` (${t.clipped} unusually ${t.clipped === 1 ? 'long or short level counts' : 'long or short levels count'} for less)` : ''}${trendNote}`,
     };
   }
 
   function fmt(n) { return (Math.round(n * 10) / 10).toString(); }
+
+  /** Answer accuracy (0..1) from the review-statistics rows, or null when there are too few answers to say. */
+  function accuracyOf(rows, minAnswers) {
+    let c = 0, i = 0;
+    Object.keys(rows || {}).forEach((id) => { const r = rows[id]; c += r[1] + r[3]; i += r[2] + r[4]; });
+    return c + i >= (minAnswers || 100) ? c / (c + i) : null;
+  }
 
   /**
    * How long until you reach `target`. The rest of the current level combines the time you have already spent on it
@@ -369,7 +440,8 @@
       const byTime = Math.max(d - elapsedDays, 0.1 * d);
       if (progress == null) return byTime;
       const byProgress = Math.max(d * (1 - Math.min(1, Math.max(0, progress))), 0.1 * d);
-      return (byTime + byProgress) / 2;
+      // Once you are past the usual time for a level the clock says nothing about what is left, so go by progress.
+      return elapsedDays >= d ? byProgress : (byTime + byProgress) / 2;
     };
     const run = (key) => {
       let t = remaining(key);
@@ -397,7 +469,7 @@
     savedHistory,
     // maths
     noteReview, dayCounts, streakInfo, criticalItems,
-    normalizeProgressions, levelStats, paceFor, estimate, bucketDays, bucketTimes, addReviews, emptyHistory, dayKey, keyToDate,
+    normalizeProgressions, levelStats, paceFor, accuracyOf, estimate, bucketDays, bucketTimes, addReviews, emptyHistory, dayKey, keyToDate,
     DAY,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

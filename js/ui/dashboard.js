@@ -96,7 +96,7 @@
     } else card('0 days', 'review streak', 'Do a review to start one');
 
     if (d.ls && d.ls.since) {
-      card(span(d.ls.elapsedDays), `on level ${d.level}`, d.pace && d.pace.n ? `Your average is ${round1(d.pace.mean)} days per level` : 'Time since you unlocked it');
+      card(span(d.ls.elapsedDays), `on level ${d.level}`, d.pace && d.pace.n ? `Your typical pace is ${round1(d.pace.mean)} days per level` : 'Time since you unlocked it');
     }
     if (d.est && !d.est.already) card('~' + shortDate(d.est.date), `level ${d.level + 1} around`, `In about ${span(d.est.days)}${d.pace && d.pace.n ? ', at your recent pace' : ''}`);
 

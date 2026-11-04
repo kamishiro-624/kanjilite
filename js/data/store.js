@@ -97,6 +97,19 @@
       return out;
     },
 
+    /** How many reviews are due by time `t` (ms): what is due now plus what falls due before then. Used for "reviews today". */
+    reviewsDueBy(t) {
+      const queued = new Set(api.pending().map((r) => r.assignment_id));
+      let n = 0;
+      asg.forEach((a) => {
+        const d = a.data;
+        if (d.hidden || !d.started_at || !d.available_at || d.srs_stage < 1 || d.srs_stage > 8) return;
+        if (Date.parse(d.available_at) > t || queued.has(a.id)) return;
+        n++;
+      });
+      return n;
+    },
+
     /** Lessons that are unlocked and not started yet (including ones whose start is still being sent). */
     lessonsAvailable() {
       const queued = new Set(api.pendingStarts().map((r) => r.assignment_id));

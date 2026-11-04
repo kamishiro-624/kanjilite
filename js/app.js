@@ -1044,11 +1044,22 @@
       // Today's lessons and reviews against the plan (all from the saved copy, no requests).
       if (plan && X.progress && Plan.evaluate(plan, lvl + X.progress.fraction, now).state !== 'done') {
         const dk = Stats.dayKey(new Date(now));
+        const doneToday = counts[dk] || 0;
+        const midnight = new Date(now); midnight.setHours(24, 0, 0, 0);
+        // The day's review total is worked out once and kept (see Plan.reviewsToday), so the bar only moves as you review.
+        // It waits for the saved copy to be brought up to date first, so stale data isn't locked in.
+        const rt = Plan.reviewsToday(doneToday, Local.reviewsDueBy(midnight.getTime()), Local._lastRefresh > 0 || navigator.onLine === false);
+        const acc = X.rs ? Stats.accuracyOf(X.rs.rows) : null;
+        const planAcc = plan.acc != null ? plan.acc : Plan.DEFAULT_ACC;
         todayHtml = PlanView.today(plan, {
           lessonsDone: Local.allAssignments().filter((a) => a.data.started_at && Stats.dayKey(new Date(a.data.started_at)) === dk).length,
           lessonsQueue: Local.lessonsAvailable().length,
-          reviewsDone: counts[dk] || 0,
+          reviewsDone: doneToday,
           reviewsDue: Local.reviewsDue().length,
+          reviewsTotal: rt.total,
+          acc,
+          // Reviews a day from new lessons at your accuracy now (the saved figure is from when you made the plan).
+          rpd: plan.lpd ? Plan.reviewsPerDay(plan.lpd, Math.max(1, (plan.end - plan.start) / 86400000), acc != null ? acc : planAcc) : 0,
         });
       } else todayHtml = '';
       const tb = $('#dash-today'); if (tb) tb.innerHTML = todayHtml;
@@ -1086,6 +1097,8 @@
     draw(true);
     drawProgress();
     loadExtras();
+    // Once the quiet sync from opening the app has finished, redraw so today's review total is worked out from fresh data.
+    Promise.resolve(Local._refreshing).catch(() => {}).then(() => { if (!stale()) paintExtras(); });
 
     // Keep it current: when data changes, once a half-minute (reviews fall due with time), and a quiet sync every few minutes.
     onUserChange = () => { draw(true); drawProgress(); };

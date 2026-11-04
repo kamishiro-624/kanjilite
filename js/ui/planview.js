@@ -33,8 +33,9 @@
   }
 
 
-  /** Dashboard card for today: lessons done against the plan's daily number, and the reviews done and still due.
-      d: { lessonsDone, lessonsQueue, reviewsDone, reviewsDue }. '' when there is no plan to show. */
+  /** Dashboard card for today: lessons done against the plan's daily number, and the reviews done against the day's total.
+      d: { lessonsDone, lessonsQueue, reviewsDone, reviewsDue, reviewsTotal, acc }. reviewsTotal is worked out once a day
+      (see Plan.reviewsToday), so the bar only moves forward as you review. '' when there is no plan to show. */
   function today(plan, d) {
     if (!plan) return '';
     const bar = (done, goal) => `<div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.min(done, goal)}"><i style="width:${goal ? Math.min(100, Math.round(done / goal * 100)) : 0}%"></i></div>`;
@@ -45,9 +46,19 @@
           <small>${left ? `${num(left)} to go for today’s plan` : 'Today’s lessons are done.'} ${d.lessonsQueue ? `${num(d.lessonsQueue)} waiting in your queue.` : 'Nothing in your queue right now.'}</small></div>`
       : `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${d.lessonsDone} done today</span></div>
           <small>${d.lessonsQueue ? `${num(d.lessonsQueue)} waiting in your queue. ` : ''}Open the plan and press “Update my plan” to get a daily lesson goal.</small></div>`;
-    const total = d.reviewsDone + d.reviewsDue;
-    const reviews = `<div class="today-col"><div class="today-head"><b>Reviews</b><span>${num(d.reviewsDone)} done${d.reviewsDue ? `, ${num(d.reviewsDue)} due now` : ''}</span></div>${bar(d.reviewsDone, total || 1)}
-          <small>${d.reviewsDue ? 'Clear what’s due before starting new lessons, so reviews don’t pile up.' : 'You’re caught up on reviews.'}${plan.rpd ? ` The plan averages about ${num(plan.rpd)} reviews a day from new lessons, and more once older items come back.` : ''}</small></div>`;
+
+    const total = Math.max(0, d.reviewsTotal || 0);
+    const over = d.reviewsDone > total;
+    const head = over ? `${num(d.reviewsDone)} done today` : `${num(d.reviewsDone)} of ${num(total)} today`;
+    const was = plan.acc != null ? plan.acc : Plan.DEFAULT_ACC;
+    const load = plan.lpd && d.rpd ? d.rpd : plan.rpd;
+    let note;
+    if (d.acc != null && Math.abs(d.acc - was) >= 0.03 && plan.lpd) {
+      note = ` Your accuracy is ${Math.round(d.acc * 100)}% (the plan assumed ${Math.round(was * 100)}%), so new lessons now bring about ${num(load)} reviews a day. Open the plan to update it.`;
+    } else if (load) note = ` The plan averages about ${num(load)} reviews a day from new lessons, and more once older items come back.`;
+    else note = '';
+    const reviews = `<div class="today-col"><div class="today-head"><b>Reviews</b><span>${head}</span></div>${bar(d.reviewsDone, total || 1)}
+          <small>${d.reviewsDue ? `${num(d.reviewsDue)} due now. Clear what’s due before starting new lessons, so reviews don’t pile up.` : 'You’re caught up on reviews.'}${over && total ? ` That’s ${num(d.reviewsDone - total)} more than were scheduled when the day began.` : ''}${note}</small></div>`;
     return `<div class="panel today"><div class="row between"><h2>Today’s plan</h2><a class="link" href="#/plan">Open plan</a></div><div class="today-cols">${lessons}${reviews}</div></div>`;
   }
 
@@ -69,6 +80,8 @@
     let old = { n: 0, from: 0 }; // lessons still waiting from levels below yours (n items, oldest level `from`)
     let frac = null;         // how far through the current level you are, once known
     let pace = null;         // your own pace, from your finished levels
+    let ls = null;           // your level history (time on the current level, finished levels)
+    let acc = null;          // your answer accuracy (0..1) from WaniKani's review statistics, once known
     const now0 = Date.now();
     const st = { target: Math.min(MAX_LEVEL, Math.max(level + 1, saved ? saved.target : (level < 30 ? 30 : MAX_LEVEL))), end: 0 };
     st.end = saved ? saved.end : now0 + Plan.fastestDays(level, st.target) * 1.5 * DAY;
@@ -76,7 +89,10 @@
     const dayKey = (ms) => Stats.dayKey(new Date(ms));
     const items = (L) => (counts[L] != null ? counts[L] : Plan.DEFAULT_ITEMS);
     const pos = () => level + (frac || 0);
-    const compute = (end) => Plan.make({ pos: pos(), target: st.target, end, now: Date.now(), items, behind: old.n });
+    const accUsed = () => (acc != null ? acc : Plan.DEFAULT_ACC);
+    // Your own pace shapes how the time is shared out over the levels (needs at least one finished level).
+    const curve = () => (pace && pace.n ? (L) => pace.byLevel(L).mean : null);
+    const compute = (end) => Plan.make({ pos: pos(), target: st.target, end, now: Date.now(), items, behind: old.n, curve: curve(), bySize: exact(), acc: accUsed() });
     const exact = () => { for (let L = level; L < st.target; L++) if (counts[L] == null) return false; return true; };
 
     el.innerHTML = `<div class="wrap plan">
@@ -104,7 +120,17 @@
       else if (ev.state === 'behind') line = `You’re about ${r1(-ev.gap)} level${-ev.gap < 1.05 ? '' : 's'} behind.`;
       else if (ev.state === 'ahead') line = `You’re about ${r1(ev.gap)} level${ev.gap < 1.05 ? '' : 's'} ahead.`;
       else line = 'You’re on track.';
-      return `<p class="plan-saved ${ev.state}">${esc(head)} <b>${esc(line)}</b></p>`;
+      let extra = '';
+      if (ev.state !== 'done' && pace && pace.n && ls) {
+        const est = Stats.estimate({ level, target: saved.target, pace, elapsedDays: ls.elapsedDays, progress: frac, now: Date.now() });
+        if (!est.already) extra += ` At your own pace you’d reach it around ${dateText(est.date)}${est.date > saved.end ? ', after your date' : ''}.`;
+      }
+      const was = saved.acc != null ? saved.acc : Plan.DEFAULT_ACC;
+      if (ev.state !== 'done' && acc != null && Math.abs(acc - was) >= 0.03 && saved.lpd) {
+        const rpd = Plan.reviewsPerDay(saved.lpd, Math.max(1, (saved.end - saved.start) / DAY), acc);
+        extra += ` Your accuracy is now ${Math.round(acc * 100)}% (${Math.round(was * 100)}% when you saved), which makes it about ${num(rpd)} reviews a day instead of ${num(saved.rpd)}. “Update my plan” refreshes it.`;
+      }
+      return `<p class="plan-saved ${ev.state}">${esc(head)} <b>${esc(line)}</b>${esc(extra)}</p>`;
     }
 
     function update() {
@@ -119,7 +145,7 @@
       const presets = [{ label: 'Fastest possible', end: p.earliest }];
       [1.5, 2, 3].forEach((k) => presets.push({ label: `${k}× slower than fastest`, end: now + p.fastest * k * DAY }));
       if (pace && pace.n) {
-        const est = Stats.estimate({ level, target: st.target, pace, elapsedDays: 0, progress: frac, now });
+        const est = Stats.estimate({ level, target: st.target, pace, elapsedDays: ls ? ls.elapsedDays : 0, progress: frac, now });
         if (!est.already) presets.splice(1, 0, { label: 'At your own pace', end: est.date });
       }
       const rows = presets.map((x) => {
@@ -127,7 +153,10 @@
         return `<button type="button" class="preset" data-end="${Math.round(x.end)}"><b>${esc(x.label)}</b><span>${esc(dateText(x.end))} · ${r1(q.perLevel)} days a level</span><span>${num(q.lessonsPerDay)} lessons and about ${num(q.reviewsAvg)} reviews a day</span></button>`;
       }).join('');
 
-      const mine = pace && pace.n ? `<p class="muted">Your average is ${r1(pace.mean)} days per level; this plan ${p.feasible ? `asks for ${r1(p.perLevel)}${p.perLevel < pace.mean ? ` (${Math.round((1 - p.perLevel / pace.mean) * 100)}% faster than you’ve been going)` : p.perLevel > pace.mean ? ` (${Math.round((p.perLevel / pace.mean - 1) * 100)}% slower)` : ''}` : 'is not possible at that date'}.</p>` : '';
+      const mine = pace && pace.n ? `<p class="muted">Your typical pace is ${r1(pace.mean)} days per level${pace.clipped ? ` (${plural(pace.clipped, 'level')} that took far longer or shorter than the rest count${pace.clipped === 1 ? 's' : ''} for less)` : ''}; this plan ${p.feasible ? `asks for ${r1(p.perLevel)}${p.perLevel < pace.mean ? ` (${Math.round((1 - p.perLevel / pace.mean) * 100)}% faster than you’ve been going)` : p.perLevel > pace.mean ? ` (${Math.round((p.perLevel / pace.mean - 1) * 100)}% slower)` : ''}` : 'is not possible at that date'}.</p>` : '';
+      const accLine = acc != null
+        ? `<p class="muted">Your answer accuracy is ${Math.round(acc * 100)}%${acc < 0.8 ? ', so a lot of items come back for extra reviews; the review numbers below include that. Slowing the pace usually brings accuracy up' : acc < Plan.DEFAULT_ACC - 0.02 ? ', a little under the usual 85%, so the review numbers below are a bit higher' : ', so the review numbers below are close to the usual'}.</p>`
+        : `<p class="muted">Your answer accuracy isn’t known yet, so the review numbers assume ${Math.round(Plan.DEFAULT_ACC * 100)}% correct.</p>`;
       const verdict = p.feasible ? '' : `<div class="banner">That’s quicker than WaniKani allows. The earliest you could reach level ${st.target} is <b>${esc(dateText(p.earliest))}</b>; the numbers below are for that date. <button class="link" id="use-earliest" type="button">Use that date</button></div>`;
       const canSave = p.feasible && frac != null;
 
@@ -139,15 +168,16 @@
             <div class="card"><b>~${num(p.reviewsAvg)}</b><span>reviews a day, on average</span><small>Busiest weeks: about ${num(p.reviewsPeak)}</small></div>
             <div class="card"><b>${esc(dateText(st.end > p.earliest ? st.end : p.earliest))}</b><span>level ${st.target}</span><small>${plural(Math.ceil((Math.max(st.end, p.earliest) - now) / DAY), 'day')} from today</small></div>
           </div>
-          ${mine}
+          ${mine}${accLine}
           <div class="row" style="margin-top:6px">
             <button class="btn" id="plan-save" type="button"${canSave ? '' : ' disabled'}>${saved ? 'Update my plan' : 'Save as my plan'}</button>
             ${saved ? '<button class="btn ghost" id="plan-clear" type="button">Remove plan</button>' : ''}
           </div>
-          <p class="fine">${p.behind ? `Lessons still waiting from earlier levels are included (${num(p.behind)}). ` : ''}Reviews are estimated from WaniKani’s standard intervals and about 85% correct answers, and count only items you haven’t started yet; reviews already in your queue come on top. ${exact() ? 'Item counts are exact.' : `Item counts use about ${Plan.DEFAULT_ITEMS} per level until each level has been downloaded (this happens quietly while you’re here).`}</p>
+          <p class="fine">${p.behind ? `Lessons still waiting from earlier levels are included (${num(p.behind)}). ` : ''}Reviews are estimated from WaniKani’s standard intervals and your answer accuracy (85% until it’s known), and count only items you haven’t started yet; reviews already in your queue come on top. ${exact() ? 'Item counts are exact.' : `Item counts use about ${Plan.DEFAULT_ITEMS} per level until each level has been downloaded (this happens quietly while you’re here).`}</p>
         </div>
         <div class="panel"><h2>Pick a pace</h2><p class="muted">Going faster means more lessons and reviews each day. Tap one to use its date.</p><div class="presets">${rows}</div></div>
         <details class="panel" open><summary><h2 style="display:inline">Level by level</h2></summary>
+          ${curve() || exact() ? `<p class="fine">Levels aren’t all given the same time: the days are spread using your own pace${pace && Math.abs(pace.trend) >= 0.2 ? ` (${pace.trend > 0 ? 'later levels have been taking you longer' : 'later levels have been getting quicker for you'})` : ''}${exact() ? ' and the number of items on each level' : ''}.</p>` : ''}
           <div class="plan-table"><table><thead><tr><th>Reach level</th><th>By</th></tr></thead><tbody>${p.milestones.map((m) => `<tr><td>${m.level}</td><td>${esc(dateText(m.date))}</td></tr>`).join('')}</tbody></table></div>
         </details>`;
 
@@ -155,7 +185,7 @@
       const ue = $('#use-earliest'); if (ue) ue.onclick = () => setEnd(endOfDay(dayKey(p.earliest)));
       const sv = $('#plan-save');
       if (sv) sv.onclick = () => {
-        saved = { target: st.target, end: st.end, start: Date.now(), startPos: level + frac, lpd: Math.round(p.lessonsPerDay * 10) / 10, rpd: Math.round(p.reviewsAvg) };
+        saved = Object.assign({ target: st.target, end: st.end, start: Date.now(), startPos: level + frac, lpd: Math.round(p.lessonsPerDay * 10) / 10, rpd: Math.round(p.reviewsAvg), acc: Math.round(p.acc * 1000) / 1000 }, Plan.shapeFields(p));
         Plan.save(uid, saved);
         if (window.Keep) Keep.request();
         o.toast('Plan saved. The dashboard will tell you if you fall behind. Settings has a backup file for it.');
@@ -175,9 +205,14 @@
     // Your own pace (from finished levels) and the real number of items per level, filled in as they become known.
     Stats.savedProgressions().then((lp) => {
       if (dead || !lp) return;
-      pace = Stats.paceFor(Stats.levelStats(lp.rows, level, Date.now()).done, 'all');
+      ls = Stats.levelStats(lp.rows, level, Date.now());
+      pace = Stats.paceFor(ls.done, 'all');
       update();
     }).catch(() => {});
+    // Your answer accuracy, from the saved review statistics, refreshed at most every half hour (the dashboard does the same).
+    const takeAccuracy = (rs) => { if (dead || !rs) return; const a = Stats.accuracyOf(rs.rows); if (a != null && a !== acc) { acc = a; update(); } };
+    Stats.savedReviewStats().then(takeAccuracy).catch(() => {});
+    Stats.syncReviewStats({}).then(takeAccuracy).catch(() => {});
     // Lessons you still have from levels below your current one (you can be on level 14 with level 12 vocabulary
     // waiting). They are in your lesson queue, so they count towards the workload. Levels that are already
     // saved on this device are counted in full (that includes items not unlocked yet); otherwise the queue is used.
