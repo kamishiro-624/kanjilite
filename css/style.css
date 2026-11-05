@@ -664,13 +664,11 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .plan-saved { margin: 4px 0 0; padding: 8px 12px; border-radius: 10px; border-left: 4px solid var(--line); background: var(--hover); }
 .plan-saved.behind, .plan-saved.late { border-left-color: var(--bad); }
 .plan-saved.on, .plan-saved.ahead, .plan-saved.done { border-left-color: var(--good); }
-.presets { display: grid; gap: 8px; }
-.preset {
-  display: grid; gap: 2px; text-align: left; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
-}
-.preset:hover { background: var(--hover); }
-.preset span { color: var(--muted); font-size: .85rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
+.chip { display: grid; gap: 0; text-align: left; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
+.chip:hover { background: var(--hover); }
+.chip.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.chip span { color: var(--muted); font-size: .8rem; }
 .plan .fine { font-size: .8rem; color: var(--muted); margin: 10px 0 0; }
 .plan details > summary { cursor: pointer; }
 .plan-table { max-height: 340px; overflow: auto; margin-top: 10px; }
@@ -823,16 +821,10 @@ a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--m
 .guard-rec li { margin-bottom: 4px; }
 @media (max-width: 520px) { .guard-item { flex-direction: column; gap: 4px; } }
 
-/* sustainability panel on the plan screen */
-.sustain { border-left: 4px solid var(--good); }
+/* sustainability line on the plan screen */
+.sustain { margin: 4px 0 0; padding: 8px 12px; border-radius: 10px; border-left: 4px solid var(--good); background: var(--hover); }
 .sustain.watch { border-left-color: var(--warn); }
 .sustain.high { border-left-color: var(--bad); }
-.sustain .meter i { background: var(--good); }
-.sustain.watch .meter i { background: var(--warn); }
-.sustain.high .meter i { background: var(--bad); }
-.sustain .meter b { left: 50%; }
-.preset.heavy { border-color: var(--warn); }
-.preset .heavy-tag { color: var(--warn); font-weight: 600; }
 .today-note { color: var(--warn) !important; }
 .session-panel { padding: 10px 16px; margin-bottom: 20px; }
 .center .muted.good, #guard-note.good { color: var(--good); }

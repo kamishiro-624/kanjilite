@@ -1,5 +1,5 @@
 /* The Plan screen and the dashboard's "off track" banner.
-   Pick a level and a date; the pace, the daily workload and a date for every level update as you change either.
+   Pick a level and a date (or tap a quick date); the pace and the daily workload update as you change either.
    Saving makes it your plan, and the dashboard warns you when you fall behind it. */
 (function (root) {
   'use strict';
@@ -8,7 +8,6 @@
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const dateText = (ms) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
   const r1 = (n) => Math.round(n * 10) / 10;
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const num = (n) => Math.round(n).toLocaleString();
   const posText = (p) => `level ${Math.floor(p)}, ${Math.round((p - Math.floor(p)) * 100)}% through`;
   const endOfDay = (key) => { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 0).getTime(); };
@@ -109,12 +108,13 @@
     const exact = () => { for (let L = level; L < st.target; L++) if (counts[L] == null) return false; return true; };
 
     el.innerHTML = `<div class="wrap plan">
-      <div class="greet"><h1>Plan</h1><p class="muted">Choose a level and a date. KanjiLite works out the pace and the daily workload, and the dashboard tells you if you fall behind.</p></div>
+      <div class="greet"><h1>Plan</h1><p class="muted">Choose a level and a date. The dashboard tells you if you fall behind.</p></div>
       <div class="panel"><h2>Your goal</h2>
         <div class="plan-form">
           <div class="field"><label for="p-target">Reach level</label>${UI.stepperHTML('p-target', st.target, { min: level + 1, max: MAX_LEVEL, step: 1, label: 'Target level' })}</div>
           <div class="field"><label for="p-end">By</label><input type="date" id="p-end" class="datein" value="${dayKey(st.end)}"></div>
         </div>
+        <div class="chips" id="plan-chips"></div>
         <div id="plan-status"></div>
       </div>
       <div id="plan-out"></div>
@@ -138,11 +138,6 @@
         const est = Stats.estimate({ level, target: saved.target, pace, elapsedDays: ls.elapsedDays, progress: frac, now: Date.now() });
         if (!est.already) extra += ` At your own pace you’d reach it around ${dateText(est.date)}${est.date > saved.end ? ', after your date' : ''}.`;
       }
-      const was = saved.acc != null ? saved.acc : Plan.DEFAULT_ACC;
-      if (ev.state !== 'done' && acc != null && Math.abs(acc - was) >= 0.03 && saved.lpd) {
-        const rpd = Plan.reviewsPerDay(saved.lpd, Math.max(1, (saved.end - saved.start) / DAY), acc);
-        extra += ` Your accuracy is now ${Math.round(acc * 100)}% (${Math.round(was * 100)}% when you saved), which makes it about ${num(rpd)} reviews a day instead of ${num(saved.rpd)}. “Update my plan” refreshes it.`;
-      }
       return `<p class="plan-saved ${ev.state}">${esc(head)} <b>${esc(line)}</b>${esc(extra)}</p>`;
     }
 
@@ -151,6 +146,7 @@
       $('#plan-status').innerHTML = statusHTML();
       const now = Date.now();
       if (st.end <= now) {
+        $('#plan-chips').innerHTML = '';
         $('#plan-out').innerHTML = '<div class="panel"><p class="error">Pick a date after today.</p></div>';
         return;
       }
@@ -158,72 +154,55 @@
       const guardOn = Guard.prefs().on;
       // The earliest date whose busiest weeks stay within what you can comfortably do. Same goal, lighter days.
       const comfy = guardOn ? Plan.endForPeak(compute, cap.value, p.earliest, now + 3000 * DAY) : null;
-      const presets = [{ label: 'Fastest possible', end: p.earliest }];
-      [1.5, 2, 3].forEach((k) => presets.push({ label: `${k}× slower than fastest`, end: now + p.fastest * k * DAY }));
+
+      // Quick dates: shortcuts for the date field, not extra settings.
+      const quick = [{ label: 'Fastest', end: p.earliest }];
       if (pace && pace.n) {
         const est = Stats.estimate({ level, target: st.target, pace, elapsedDays: ls ? ls.elapsedDays : 0, progress: frac, now });
-        if (!est.already) presets.splice(1, 0, { label: 'At your own pace', end: est.date });
+        if (!est.already) quick.push({ label: 'Your pace', end: est.date });
       }
-      if (comfy && comfy > p.earliest + DAY) presets.splice(presets.length > 1 && presets[1].label === 'At your own pace' ? 2 : 1, 0, { label: `Comfortable pace (up to ${num(cap.value)} reviews a day)`, end: comfy });
-      const rows = presets.map((x) => {
-        const q = compute(x.end);
-        const heavy = guardOn && q.reviewsPeak > cap.value * 1.1;
-        return `<button type="button" class="preset${heavy ? ' heavy' : ''}" data-end="${Math.round(x.end)}"><b>${esc(x.label)}</b><span>${esc(dateText(x.end))} · ${r1(q.perLevel)} days a level</span><span>${num(q.lessonsPerDay)} lessons and about ${num(q.reviewsAvg)} reviews a day${heavy ? ' <span class="heavy-tag">· heavier than your usual</span>' : ''}</span></button>`;
+      if (comfy && comfy > p.earliest + DAY) quick.push({ label: 'Comfortable', end: comfy, tip: `Busiest weeks stay under ${num(cap.value)} reviews a day` });
+      const cur = dayKey(st.end);
+      $('#plan-chips').innerHTML = quick.map((x) => {
+        const e = endOfDay(dayKey(x.end));
+        return `<button type="button" class="chip${dayKey(e) === cur ? ' on' : ''}" data-end="${e}"${x.tip ? ` title="${esc(x.tip)}"` : ''}><b>${esc(x.label)}</b><span>${esc(dateText(x.end))}</span></button>`;
       }).join('');
 
-      const mine = pace && pace.n ? `<p class="muted">Your typical pace is ${r1(pace.mean)} days per level${pace.clipped ? ` (${plural(pace.clipped, 'level')} that took far longer or shorter than the rest count${pace.clipped === 1 ? 's' : ''} for less)` : ''}; this plan ${p.feasible ? `asks for ${r1(p.perLevel)}${p.perLevel < pace.mean ? ` (${Math.round((1 - p.perLevel / pace.mean) * 100)}% faster than you’ve been going)` : p.perLevel > pace.mean ? ` (${Math.round((p.perLevel / pace.mean - 1) * 100)}% slower)` : ''}` : 'is not possible at that date'}.</p>` : '';
-      const accLine = acc != null
-        ? `<p class="muted">Your answer accuracy is ${Math.round(acc * 100)}%${acc < 0.8 ? ', so a lot of items come back for extra reviews; the review numbers below include that. Slowing the pace usually brings accuracy up' : acc < Plan.DEFAULT_ACC - 0.02 ? ', a little under the usual 85%, so the review numbers below are a bit higher' : ', so the review numbers below are close to the usual'}.</p>`
-        : `<p class="muted">Your answer accuracy isn’t known yet, so the review numbers assume ${Math.round(Plan.DEFAULT_ACC * 100)}% correct.</p>`;
-      const verdict = p.feasible ? '' : `<div class="banner">That’s quicker than WaniKani allows. The earliest you could reach level ${st.target} is <b>${esc(dateText(p.earliest))}</b>; the numbers below are for that date. <button class="link" id="use-earliest" type="button">Use that date</button></div>`;
+      const verdict = p.feasible ? '' : `<div class="banner">Quicker than WaniKani allows. The earliest for level ${st.target} is <b>${esc(dateText(p.earliest))}</b>, and the numbers below are for that date. <button class="link" id="use-earliest" type="button">Use that date</button></div>`;
       const canSave = p.feasible && frac != null;
 
-      // Is this plan something you can keep up? Compares its busiest weeks with what you manage.
+      // One line on whether the busiest weeks fit what you manage.
       let sustain = '';
       if (guardOn) {
         const peak = p.reviewsPeak, ratio = peak / cap.value;
         const lvl = ratio <= 1.1 ? 'ok' : ratio <= 1.5 ? 'watch' : 'high';
-        const basis = cap.auto ? (cap.known ? `That limit comes from your recent reviews (about ${num(cap.typical)} a day, with some room for a heavy day).` : 'You have no review history here yet, so this uses a general limit.') : 'That limit is the one you set in Settings.';
-        const verdict = lvl === 'ok'
-          ? `At its busiest this plan brings about <b>${num(peak)}</b> reviews a day, within the ${num(cap.value)} you are comfortable with. That leaves room for a bad day.`
-          : `At its busiest this plan brings about <b>${num(peak)}</b> reviews a day, ${lvl === 'high' ? 'well ' : ''}above the ${num(cap.value)} you are comfortable with. Plans this heavy are where backlogs begin: one busy week and the pile grows faster than you can clear it.`;
-        const fix = lvl !== 'ok'
-          ? (comfy ? ` <b>${esc(dateText(comfy))}</b> keeps the busiest weeks under ${num(cap.value)} and still gets you to level ${st.target}.` : ' Even a very late date would not get it under that limit, so consider a lower target level.')
-          : '';
-        sustain = `<div class="panel sustain ${lvl}"><h2>Is it sustainable?</h2>
-          <div class="meter" role="img" aria-label="Busiest weeks against your comfortable limit"><i style="width:${Math.min(100, Math.round(peak / (cap.value * 2) * 100))}%"></i><b aria-hidden="true"></b></div>
-          <p>${verdict}${fix}</p>
-          <p class="fine">The mark is your comfortable limit. ${esc(basis)} This counts reviews from new lessons only; items you have already started come on top.</p>
-          <div class="row" style="gap:8px;flex-wrap:wrap">${lvl !== 'ok' && comfy ? `<button class="btn small" id="use-comfy" type="button">Use ${esc(dateText(comfy))}</button>` : ''}
-            <button class="btn ghost small" id="edit-limit" type="button">Change my limit</button></div></div>`;
+        const text = lvl === 'ok'
+          ? `Sustainable: the busiest weeks stay within your comfortable ${num(cap.value)} reviews a day.`
+          : `Heavy: the busiest weeks reach about ${num(peak)} reviews a day, ${lvl === 'high' ? 'well ' : ''}above your comfortable ${num(cap.value)}. Plans like this are where backlogs begin.${comfy ? ` <button class="link" id="use-comfy" type="button">Use ${esc(dateText(comfy))}</button> to keep it comfortable.` : ' Consider a lower target level.'}`;
+        sustain = `<p class="sustain ${lvl}">${text}</p>`;
       }
 
       $('#plan-out').innerHTML = `${verdict}
         <div class="panel"><h2>What it takes</h2>
           <div class="cards">
-            <div class="card"><b>${r1(p.perLevel)}</b><span>days per level</span><small>Fastest possible: ${r1(p.fastestPerLevel)}</small></div>
-            <div class="card"><b>${num(p.lessonsPerDay)}</b><span>new lessons a day</span><small>${num(p.itemsLeft)} items in all${p.behind ? `, including ${num(p.behind)} from earlier levels (oldest: level ${old.from})` : ''}</small></div>
-            <div class="card"><b>~${num(p.reviewsAvg)}</b><span>reviews a day, on average</span><small>Busiest weeks: about ${num(p.reviewsPeak)}</small></div>
-            <div class="card"><b>${esc(dateText(st.end > p.earliest ? st.end : p.earliest))}</b><span>level ${st.target}</span><small>${plural(Math.ceil((Math.max(st.end, p.earliest) - now) / DAY), 'day')} from today</small></div>
+            <div class="card"><b>${r1(p.perLevel)}</b><span>days per level</span><small>Fastest: ${r1(p.fastestPerLevel)}</small></div>
+            <div class="card"><b>${num(p.lessonsPerDay)}</b><span>new lessons a day</span><small>${num(p.itemsLeft)} items${p.behind ? `, ${num(p.behind)} from earlier levels` : ''}</small></div>
+            <div class="card"><b>~${num(p.reviewsAvg)}</b><span>reviews a day</span><small>Busiest weeks: ${num(p.reviewsPeak)}</small></div>
           </div>
-          ${mine}${accLine}
-          <div class="row" style="margin-top:6px">
+          ${sustain}
+          <div class="row" style="margin-top:10px">
             <button class="btn" id="plan-save" type="button"${canSave ? '' : ' disabled'}>${saved ? 'Update my plan' : 'Save as my plan'}</button>
             ${saved ? '<button class="btn ghost" id="plan-clear" type="button">Remove plan</button>' : ''}
           </div>
-          <p class="fine">${p.behind ? `Lessons still waiting from earlier levels are included (${num(p.behind)}). ` : ''}Reviews are estimated from WaniKani’s standard intervals and your answer accuracy (85% until it’s known), and count only items you haven’t started yet; reviews already in your queue come on top. ${exact() ? 'Item counts are exact.' : `Item counts use about ${Plan.DEFAULT_ITEMS} per level until each level has been downloaded (this happens quietly while you’re here).`}</p>
+          <p class="fine">Reviews assume ${Math.round(p.acc * 100)}% accuracy${acc == null ? ' until yours is known' : ''} and count only items you haven’t started; reviews already in your queue come on top.${exact() ? '' : ' Item counts are estimates until each level has downloaded.'}</p>
         </div>
-        ${sustain}
-        <div class="panel"><h2>Pick a pace</h2><p class="muted">Going faster means more lessons and reviews each day. Tap one to use its date.</p><div class="presets">${rows}</div></div>
-        <details class="panel" open><summary><h2 style="display:inline">Level by level</h2></summary>
-          ${curve() || exact() ? `<p class="fine">Levels aren’t all given the same time: the days are spread using your own pace${pace && Math.abs(pace.trend) >= 0.2 ? ` (${pace.trend > 0 ? 'later levels have been taking you longer' : 'later levels have been getting quicker for you'})` : ''}${exact() ? ' and the number of items on each level' : ''}.</p>` : ''}
+        <details class="panel"><summary><h2 style="display:inline">Level by level</h2></summary>
           <div class="plan-table"><table><thead><tr><th>Reach level</th><th>By</th></tr></thead><tbody>${p.milestones.map((m) => `<tr><td>${m.level}</td><td>${esc(dateText(m.date))}</td></tr>`).join('')}</tbody></table></div>
         </details>`;
 
-      el.querySelectorAll('.preset').forEach((b) => { b.onclick = () => setEnd(Number(b.dataset.end)); });
+      $('#plan-chips').querySelectorAll('.chip').forEach((b) => { b.onclick = () => setEnd(Number(b.dataset.end)); });
       const ue = $('#use-earliest'); if (ue) ue.onclick = () => setEnd(endOfDay(dayKey(p.earliest)));
       const uc = $('#use-comfy'); if (uc) uc.onclick = () => setEnd(endOfDay(dayKey(comfy)));
-      const el2 = $('#edit-limit'); if (el2) el2.onclick = () => { if (o.openSettings) o.openSettings('alerts'); };
       const sv = $('#plan-save');
       if (sv) sv.onclick = async () => {
         // A prompt, not a block: say plainly when the plan is much heavier than what you manage, then let the person decide.
