@@ -1,6 +1,6 @@
 # KanjiLite
 
-A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a static site (plain HTML, CSS and JavaScript, no build step) that talks directly to the WaniKani API v2, so it can be hosted for free on GitHub Pages.
+A small, unofficial client for [WaniKani](https://www.wanikani.com).
 
 ## Features
 
@@ -42,15 +42,6 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com). It is a sta
   - Uploads and syncs run at a lower priority than anything a screen is waiting for, share one request budget across tabs, back off when WaniKani's rate-limit headers say the budget is nearly used, and wait out a 429 instead of failing.
   - Subjects for your levels are downloaded quietly in the background after your first visit.
 - Light, dark (matte black) or follow-your-device themes. All dropdowns, steppers, switches and confirmations are drawn with CSS rather than native browser controls.
-
-## Deploy on GitHub Pages
-
-1. Create a new repository on GitHub (for example `kanjilite`).
-2. Unzip this archive and upload the files to the root of the repository (or `git init`, commit, and push).
-3. In the repository go to **Settings, Pages**. Under **Build and deployment**, choose **Deploy from a branch**, pick `main` and `/ (root)`, and save.
-4. After a minute the site is live at `https://<your-username>.github.io/<repository>/`.
-
-To try it locally, run `python3 -m http.server` in this folder and open http://localhost:8000.
 
 ## Using it
 
