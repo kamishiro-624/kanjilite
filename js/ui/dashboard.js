@@ -127,5 +127,44 @@
       <div class="pk-grid">${kinds.map(card).join('')}</div></div>`;
   }
 
-  root.Dash = { levelProgress, critical, numbers, practice, STAGES, SHADES, STAGE_NAMES };
+  // ---------------------------------------------------------------- item spread
+
+  const SPREAD_ROWS = [
+    { key: 'apprentice', label: 'Apprentice', color: '#ffb81f' },
+    { key: 'guru', label: 'Guru', color: '#22b45a' },
+    { key: 'master', label: 'Master', color: '#3dc5ff' },
+    { key: 'enlightened', label: 'Enlightened', color: '#a78bfa' },
+    { key: 'burned', label: 'Burned', color: '#6b7280' },
+  ];
+
+  /** Which row of the table an SRS stage (1 to 9) belongs to. */
+  function spreadGroup(stage) {
+    return stage <= 4 ? 'apprentice' : stage <= 6 ? 'guru' : stage === 7 ? 'master' : stage === 8 ? 'enlightened' : 'burned';
+  }
+
+  /** counts: { apprentice: [radicals, kanji, vocabulary], guru: [...], ... }. A total row closes the table. */
+  function spread(counts) {
+    const cell = (cls, n) => `<td><span class="sp-pill ${cls}${n ? '' : ' zero'}">${n.toLocaleString()}</span></td>`;
+    const sum = [0, 0, 0];
+    const rows = SPREAD_ROWS.map((r) => {
+      const c = counts[r.key] || [0, 0, 0];
+      c.forEach((n, i) => { sum[i] += n; });
+      return `<tr><th scope="row"><span class="sp-dot" style="background:${r.color}" aria-hidden="true"></span>${r.label}</th>
+        ${cell('rad', c[0])}${cell('kan', c[1])}${cell('voc', c[2])}${cell('tot', c[0] + c[1] + c[2])}</tr>`;
+    }).join('');
+    const grand = sum[0] + sum[1] + sum[2];
+    return `<div class="panel spread"><h2>Item spread</h2>
+      <div class="table-wrap"><table class="sp-table">
+        <thead><tr><th scope="col"><span class="sr-only">Stage</span></th>
+          <th scope="col"><span class="sp-pill rad">Radicals</span></th>
+          <th scope="col"><span class="sp-pill kan">Kanji</span></th>
+          <th scope="col"><span class="sp-pill voc">Vocabulary</span></th>
+          <th scope="col"><span class="sp-pill tot">Total</span></th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><th scope="row">Total</th>${cell('rad', sum[0])}${cell('kan', sum[1])}${cell('voc', sum[2])}${cell('tot grand', grand)}</tr></tfoot>
+      </table></div>
+      <p class="fine muted">Items you have started, by SRS stage. Lessons you have not done yet are not counted.</p></div>`;
+  }
+
+  root.Dash = { levelProgress, critical, numbers, practice, spread, spreadGroup, STAGES, SHADES, STAGE_NAMES };
 })(window);

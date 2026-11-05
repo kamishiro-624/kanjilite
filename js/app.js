@@ -922,6 +922,7 @@
     let planHtml = '';
     let todayHtml = '';
     let practiceHtml = '';
+    let spreadHtml = '';
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
     const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null };
@@ -955,6 +956,7 @@
           <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
         </div>
         <div id="dash-practice">${practiceHtml}</div>
+        <div id="dash-spread">${spreadHtml}</div>
         <div id="lvl-progress">${progressHtml}</div>
         <div id="dash-numbers">${numbersHtml}</div>
         <div id="dash-critical">${critHtml}</div>
@@ -972,6 +974,7 @@
 
       bindPlan();
       paintPractice();
+      paintSpread();
       UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
       $('#h-more').onclick = () => openSettings('reviews');
       const discard = $('#discard-session');
@@ -1009,6 +1012,22 @@
       if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
       box.innerHTML = practiceHtml;
       UI.bindStepper($('#p-size').closest('[data-stepper]'), (v) => { localStorage.setItem('kl_practice_size', String(v)); toast('Practice length saved.'); });
+    }
+
+    // Item spread: every started item, by SRS stage and kind, from the saved copy.
+    function paintSpread() {
+      if (stale()) return;
+      const counts = {};
+      Local.allAssignments().forEach((a) => {
+        const d = a.data;
+        if (d.hidden || !(d.srs_stage >= 1)) return;
+        const g = Dash.spreadGroup(d.srs_stage);
+        const c = counts[g] || (counts[g] = [0, 0, 0]);
+        c[d.subject_type === 'radical' ? 0 : d.subject_type === 'kanji' ? 1 : 2]++;
+      });
+      spreadHtml = Dash.spread(counts);
+      const box = $('#dash-spread');
+      if (box) box.innerHTML = spreadHtml;
     }
 
     function bindPlan() {
@@ -1099,6 +1118,7 @@
       }
       const cb = $('#dash-critical'); if (cb) cb.innerHTML = critHtml;
       paintPractice();
+      paintSpread();
     }
 
     async function loadExtras() {
