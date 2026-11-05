@@ -42,13 +42,79 @@
   };
   const LESSON_CAP = 100;
 
+  // ---------- workload guard ----------
+  // Warns when the lessons and reviews someone is piling up are more than they can keep up with (see logic/guard.js).
+  let lastFrac = null;     // how far through the current level (0..1), once the dashboard has worked it out
+  let guardSevSeen = 0;    // how bad things were when a review session started, to say "back under control" afterwards
+
+  /** Everything Guard.evaluate needs, from the saved copy of your data (no requests). hist and rs may still be null. */
+  function guardContext(userId, level, hist, rs, frac) {
+    const now = Date.now();
+    const due = Local.reviewsDue().length;
+    const week = now - 7 * 86400000;
+    const today = Stats.dayKey(new Date(now));
+    let apprentice = 0, lessons7 = 0, lessonsToday = 0;
+    Local.allAssignments().forEach((a) => {
+      const d = a.data;
+      if (d.hidden) return;
+      if (d.srs_stage >= 1 && d.srs_stage <= 4) apprentice++;
+      if (d.started_at) {
+        const t = Date.parse(d.started_at);
+        if (t >= week) { lessons7++; if (Stats.dayKey(new Date(t)) === today) lessonsToday++; }
+      }
+    });
+    return {
+      now, due, next24: Math.max(0, Local.reviewsDueBy(now + 86400000) - due), apprentice, lessons7, lessonsToday,
+      counts: Stats.dayCounts(hist), acc: rs ? Stats.accuracyOf(rs.rows) : null,
+      plan: Plan.load(userId), pos: frac != null ? level + frac : null,
+    };
+  }
+
+  /** The guard's verdict right now, from what is saved on this device. null until there is data. */
+  async function guardNow() {
+    const u = userCache ? userCache.u : null;
+    if (!u || !Local.hasData()) return null;
+    const [hist, rs] = await Promise.all([Stats.savedHistory().catch(() => null), Stats.savedReviewStats().catch(() => null)]);
+    return Guard.evaluate(guardContext(u.id, u.level, hist, rs, lastFrac));
+  }
+
+  /** Before lessons (or another batch): if reviews are piled up, or today's safe amount is done, ask first.
+      Only ever a prompt; "Start anyway" always works. Resolves true to carry on. */
+  async function lessonsGate(another) {
+    const p = Guard.prefs();
+    if (!p.on || !p.gate) return true;
+    let res = null;
+    try { res = await guardNow(); } catch (e) { return true; }
+    if (!res) return true;
+    const a = res.allowance, m = res.m;
+    if (a.paused) {
+      const ok = await UI.confirm({
+        title: 'Your reviews are piled up',
+        message: `${m.due.toLocaleString()} reviews are due${m.appSev ? ` and ${m.apprentice} items are still in Apprentice` : ''}. New lessons now add to the pile, and the pile is what makes people quit. Clear some reviews first; the lessons will still be here.`,
+        ok: 'Start lessons anyway', cancel: 'Reviews first',
+      });
+      if (!ok) go(m.due ? '#/reviews' : '#/');
+      return ok;
+    }
+    if (another && a.allowed && a.done >= a.allowed) {
+      const ok = await UI.confirm({
+        title: 'That’s today’s safe amount',
+        message: `You have started ${a.done} lessons today, which is ${a.hasPlan ? 'what your plan asks for' : 'about what you can sustain'} (${a.allowed}). More now means more reviews over the next few days. It is fine to stop here and carry on tomorrow.`,
+        ok: 'Do another batch', cancel: 'Stop for today',
+      });
+      if (!ok) go('#/');
+      return ok;
+    }
+    return true;
+  }
+
   let toastTimer;
-  function toast(msg) {
+  function toast(msg, ms) {
     const t = $('#toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 3800);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms || 3800);
   }
 
   // The API layer paces itself to WaniKani's rate limit; tell the person when a screen has to wait.
@@ -603,7 +669,7 @@
   $('#sync-btn').addEventListener('click', () => {
     const st = Sync.status();
     if (!st.user && !st.remembered) { signInToSync(); return; }
-    openSettings();
+    openSettings('general');
     setTimeout(() => { const el = $('#s-sync'); if (el) el.scrollIntoView({ block: 'center' }); }, 50);
   });
   if (Sync.configured) Sync.on(paintSyncButton);
@@ -614,39 +680,79 @@
     localStorage.setItem('kl_session_size', String(clampInt(v, 0, 5000)));
     window.dispatchEvent(new Event('kl-settings')); // screens showing a setting keep in step with it
   };
+  const setPracticeSize = (v) => {
+    localStorage.setItem('kl_practice_size', String(clampInt(v, 5, 200)));
+    window.dispatchEvent(new Event('kl-settings'));
+  };
   const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v))));
 
   const bindSel = (id, fn) => UI.bindSelect($('#' + id).closest('[data-select]'), fn);
 
-  /** Settings dialog. General holds appearance, lessons and the account; Reviews holds review options only. */
+  /** Settings dialog, in three tabs so each setting has one obvious home:
+      Study (everything about how lessons and reviews work), Alerts (notifications and the workload guard) and
+      General (appearance, sync, backup, account). Opens on Study; `tab` can be 'study', 'alerts' or 'general'. */
   function openSettings(tab) {
-    const which = tab === 'reviews' ? 'reviews' : 'general';
+    const which = tab === 'general' || tab === 'alerts' ? tab : 'study';
     const nums = (list) => list.map((n) => ({ value: n, label: String(n) }));
     const delays = [[0, 'Off'], [500, '0.5 seconds'], [1000, '1 second'], [1500, '1.5 seconds'], [2000, '2 seconds'], [3000, '3 seconds']]
       .map(([value, label]) => ({ value, label }));
     const themes = [{ value: 'system', label: 'Match my device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark (matte black)' }];
     const firsts = [{ value: 'random', label: 'Random' }, { value: 'meaning', label: 'Meaning' }, { value: 'reading', label: 'Reading' }];
+    const gp = Guard.prefs();
+    const tabs3 = [['study', 'Study'], ['alerts', 'Alerts'], ['general', 'General']];
 
     openModal(`<h2>Settings</h2>
       <div class="tabs" role="tablist" aria-label="Settings sections">
-        <button type="button" role="tab" id="tab-general" data-tab="general" aria-controls="panel-general" aria-selected="${which === 'general'}" tabindex="${which === 'general' ? 0 : -1}">General</button>
-        <button type="button" role="tab" id="tab-reviews" data-tab="reviews" aria-controls="panel-reviews" aria-selected="${which === 'reviews'}" tabindex="${which === 'reviews' ? 0 : -1}">Reviews</button>
+        ${tabs3.map(([k, label]) => `<button type="button" role="tab" id="tab-${k}" data-tab="${k}" aria-controls="panel-${k}" aria-selected="${which === k}" tabindex="${which === k ? 0 : -1}">${label}</button>`).join('')}
       </div>
 
-      <div role="tabpanel" id="panel-general" aria-labelledby="tab-general"${which === 'general' ? '' : ' hidden'}>
-        <section class="setcard"><h3>Appearance</h3>
-          <div class="field"><label for="s-theme">Theme</label>${UI.selectHTML('s-theme', themes, settings.theme)}</div>
+      <div role="tabpanel" id="panel-study" aria-labelledby="tab-study"${which === 'study' ? '' : ' hidden'}>
+        <section class="setcard"><h3>Reviews</h3>
+          <div class="field"><label for="s-size">Reviews per session</label>
+            ${UI.stepperHTML('s-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+            <span class="muted">Any number you like. 0 means everything that’s due. Shorter sessions are easier to finish.</span></div>
+          ${UI.switchHTML('s-b2b', settings.backToBack, 'Ask an item’s reading and meaning back to back')}
+          <div class="field"><label for="s-first">Question asked first</label>${UI.selectHTML('s-first', firsts, settings.firstQ)}</div>
+          <div class="field"><label for="s-delay">After a wrong answer, lock “Next” for</label>${UI.selectHTML('s-delay', delays, settings.wrongDelay)}
+            <span class="muted">Keeps a stray extra Enter press from skipping the correction. Undo still works.</span></div>
+        </section>
+        <section class="setcard"><h3>Review cards</h3>
+          ${UI.switchHTML('s-level', settings.showLevel, 'Show the item’s level on review cards')}
+          ${UI.switchHTML('s-stage', settings.showStage, 'Show the item’s SRS stage on review cards')}
+          ${UI.switchHTML('s-srstoast', settings.srsToast, 'Show the new SRS stage after each answer')}
+          ${UI.switchHTML('s-autoplay', settings.autoplay, 'Play audio after a correct answer', 'Plays the native-speaker recording of a vocabulary word. Kanji and radicals don’t play automatically. Off by default.')}
         </section>
         <section class="setcard"><h3>Lessons</h3>
           <div class="field"><label for="s-batch">Lessons per batch</label>${UI.selectHTML('s-batch', nums([3, 5, 7, 10]), settings.lessonBatch)}
             <span class="muted">How many new items you study before each quiz.</span></div>
         </section>
-        <section class="setcard"><h3>Notifications</h3>
-          ${UI.switchHTML('s-notify', Notify.enabled(), 'Notify me when new reviews are available', 'Shown while KanjiLite is open in a browser tab, including a background tab.')}
+        <section class="setcard"><h3>Extra practice</h3>
+          <div class="field"><label for="s-psize">Items per practice</label>
+            ${UI.stepperHTML('s-psize', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' })}</div>
+        </section>
+      </div>
+
+      <div role="tabpanel" id="panel-alerts" aria-labelledby="tab-alerts"${which === 'alerts' ? '' : ' hidden'}>
+        <section class="setcard"><h3>Workload guard</h3>
+          <p class="muted">Too many lessons and too few reviews is how backlogs start, and backlogs are why people quit. The guard compares what you’re piling up with what you actually manage, and warns you early on the dashboard. It never stops you; it just says so first.</p>
+          ${UI.switchHTML('s-guard', gp.on, 'Warn me before I overcommit', 'Review backlogs, a full Apprentice stage, skipped days, a lesson pace or a plan that is too heavy.')}
+          <div class="field"><label for="s-guard-cap">Reviews a day I’m comfortable with</label>
+            ${UI.stepperHTML('s-guard-cap', gp.cap, { min: 0, max: 1000, step: 10, label: 'Comfortable reviews a day' })}
+            <span class="muted" id="s-guard-capnote">0 works it out from your recent reviews.</span></div>
+          ${UI.switchHTML('s-guard-gate', gp.gate, 'Ask before starting lessons when reviews are piled up', 'A prompt, not a block: you can always go ahead. It also asks before more lessons once you’ve done today’s safe amount.')}
+        </section>
+        <section class="setcard"><h3>Review notifications</h3>
+          ${UI.switchHTML('s-notify', Notify.enabled(), 'Notify me when new reviews are available', 'Shown while KanjiLite is open in a browser tab, including a background tab. If the workload guard is on, a serious pile-up is also announced this way, at most once a day.')}
           <div class="field"><label for="s-notify-min">Only when at least this many are due</label>
             ${UI.stepperHTML('s-notify-min', Notify.minReviews(), { min: 1, max: 500, step: 1, label: 'Minimum reviews for a notification' })}</div>
           <p class="muted" id="s-notify-status">${esc(Notify.statusText())}</p>
           <button class="btn ghost small" id="s-notify-test" type="button">Send a test notification</button>
+        </section>
+      </div>
+
+      <div role="tabpanel" id="panel-general" aria-labelledby="tab-general"${which === 'general' ? '' : ' hidden'}>
+        <section class="setcard"><h3>Appearance</h3>
+          <div class="field"><label for="s-theme">Theme</label>${UI.selectHTML('s-theme', themes, settings.theme)}</div>
         </section>
         <section class="setcard"><h3>Sync across devices</h3><div id="s-sync"></div></section>
         <section class="setcard"><h3>Back up and restore</h3>
@@ -662,30 +768,6 @@
         <section class="setcard"><h3>Account</h3>
           <p class="muted">Your token is stored only in this browser and sent only to WaniKani.</p>
           <button class="btn ghost" id="s-logout" type="button">Log out</button>
-        </section>
-      </div>
-
-      <div role="tabpanel" id="panel-reviews" aria-labelledby="tab-reviews"${which === 'reviews' ? '' : ' hidden'}>
-        <section class="setcard"><h3>Session</h3>
-          <div class="field"><label for="s-size">Reviews per session</label>
-            ${UI.stepperHTML('s-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
-            <span class="muted">Any number you like. 0 means everything that’s due.</span></div>
-        </section>
-        <section class="setcard"><h3>Questions</h3>
-          ${UI.switchHTML('s-b2b', settings.backToBack, 'Ask an item’s reading and meaning back to back')}
-          <div class="field"><label for="s-first">Question asked first</label>${UI.selectHTML('s-first', firsts, settings.firstQ)}</div>
-        </section>
-        <section class="setcard"><h3>Audio</h3>
-          ${UI.switchHTML('s-autoplay', settings.autoplay, 'Play audio after a correct answer', 'Plays the native-speaker recording of a vocabulary word. Kanji and radicals don’t play automatically. Off by default.')}
-        </section>
-        <section class="setcard"><h3>After a wrong answer</h3>
-          <div class="field"><label for="s-delay">Lock “Next” for</label>${UI.selectHTML('s-delay', delays, settings.wrongDelay)}
-            <span class="muted">Keeps a stray extra Enter press from skipping the correction. Undo still works.</span></div>
-        </section>
-        <section class="setcard"><h3>Display</h3>
-          ${UI.switchHTML('s-level', settings.showLevel, 'Show the item’s level on review cards')}
-          ${UI.switchHTML('s-stage', settings.showStage, 'Show the item’s SRS stage on review cards')}
-          ${UI.switchHTML('s-srstoast', settings.srsToast, 'Show the new SRS stage after each answer')}
         </section>
       </div>
 
@@ -718,11 +800,27 @@
     bindSel('s-first', (v) => localStorage.setItem('kl_first', v));
     bindSel('s-delay', (v) => localStorage.setItem('kl_wrong_delay', String(v)));
     UI.bindStepper($('#s-size').closest('[data-stepper]'), setSessionSize);
+    UI.bindStepper($('#s-psize').closest('[data-stepper]'), setPracticeSize);
     $('#s-b2b').onchange = (e) => localStorage.setItem('kl_b2b', e.target.checked ? '1' : '0');
     $('#s-autoplay').onchange = (e) => { localStorage.setItem('kl_autoplay', e.target.checked ? '1' : '0'); if (!e.target.checked && window.Sound) Sound.stop(); };
     $('#s-level').onchange = (e) => localStorage.setItem('kl_show_level', e.target.checked ? '1' : '0');
     $('#s-stage').onchange = (e) => localStorage.setItem('kl_show_stage', e.target.checked ? '1' : '0');
     $('#s-srstoast').onchange = (e) => localStorage.setItem('kl_srs_toast', e.target.checked ? '1' : '0');
+
+    // The workload guard. The dashboard repaints when it hears 'kl-settings'.
+    const guardChanged = () => window.dispatchEvent(new Event('kl-settings'));
+    $('#s-guard').onchange = (e) => { localStorage.setItem(Guard.KEYS.ON, e.target.checked ? '1' : '0'); guardChanged(); };
+    $('#s-guard-gate').onchange = (e) => localStorage.setItem(Guard.KEYS.GATE, e.target.checked ? '1' : '0');
+    const capNote = () => {
+      Stats.savedHistory().then((h) => {
+        const el = $('#s-guard-capnote'); if (!el) return;
+        const c = Guard.capacity(Stats.dayCounts(h), Date.now(), Guard.prefs().cap);
+        el.textContent = c.auto ? (c.known ? `0 works it out from your recent reviews. Right now that is about ${c.value} a day.` : '0 works it out from your recent reviews. You don’t have enough yet, so it assumes about ' + c.value + ' a day.') : `You set ${c.value} a day. Set 0 to have it worked out from your recent reviews instead.`;
+      }).catch(() => {});
+    };
+    capNote();
+    UI.bindStepper($('#s-guard-cap').closest('[data-stepper]'), (v) => { localStorage.setItem(Guard.KEYS.CAP, String(clampInt(v, 0, 1000))); capNote(); guardChanged(); });
+
     const nStatus = () => { $('#s-notify-status').textContent = Notify.statusText(); };
     $('#s-notify').onchange = async (e) => {
       if (!e.target.checked) { Notify.disable(); nStatus(); return; }
@@ -826,7 +924,10 @@
     }
     Local.prefetchSubjects(user).catch(() => {}); // quiet, low priority, once per visit
     // Review notifications run on every screen, not just the dashboard (no-op if already started or switched off).
-    Notify.start({ summary: () => Local.summary(), sync: () => Local.refresh({ minAge: 60000 }), subscribe: Local.subscribe });
+    Notify.start({
+      summary: () => Local.summary(), sync: () => Local.refresh({ minAge: 60000 }), subscribe: Local.subscribe,
+      guard: async () => { const r = await guardNow(); return r ? Guard.toPush(r) : null; },
+    });
     return user;
   }
 
@@ -921,11 +1022,14 @@
     let critHtml = '';
     let planHtml = '';
     let todayHtml = '';
+    let guardHtml = '';
+    let guardRes = null;
+    let announced = false;
     let practiceHtml = '';
     let spreadHtml = '';
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
-    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null };
+    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null, loaded: false };
 
     function draw(force) {
       if (stale()) return;
@@ -949,22 +1053,23 @@
         ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
         ${syncHint ? '<div class="banner info">Keep your plan and settings the same on all your devices. <button class="link" id="sync-hint-in" type="button">Sign in</button> <button class="link" id="sync-hint-x" type="button">Not now</button></div>' : ''}
         ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
+        <div id="dash-guard">${guardHtml}</div>
         <div id="dash-plan">${planHtml}</div>
         <div id="dash-today">${todayHtml}</div>
         <div class="todo">
           <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
           <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
         </div>
+        <div class="panel session-panel">
+          <label for="h-size"><b>Reviews per session</b></label>
+          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+          <span class="muted">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More study options</button></span>
+        </div>
         <div id="dash-practice">${practiceHtml}</div>
         <div id="dash-spread">${spreadHtml}</div>
         <div id="lvl-progress">${progressHtml}</div>
         <div id="dash-numbers">${numbersHtml}</div>
         <div id="dash-critical">${critHtml}</div>
-        <div class="panel session-panel">
-          <label for="h-size"><b>Reviews per session</b></label>
-          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
-          <span class="muted">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More review options</button></span>
-        </div>
         <div class="panel">
           <h2>Coming up</h2>
           ${sd.upcoming.length ? `<div class="forecast">${sd.upcoming.map((x) => `<div><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.count / maxUp * 100))}%"></span></span><span class="n">${x.count}</span></div>`).join('')}</div>`
@@ -973,10 +1078,11 @@
       </div>`;
 
       bindPlan();
+      bindGuard();
       paintPractice();
       paintSpread();
       UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
-      $('#h-more').onclick = () => openSettings('reviews');
+      $('#h-more').onclick = () => openSettings('study');
       const discard = $('#discard-session');
       if (discard) discard.onclick = async () => {
         const ok = await UI.confirm({ title: 'Discard this session?', message: 'Items you already finished are safe on WaniKani.', ok: 'Discard', danger: true });
@@ -1011,7 +1117,7 @@
       // Don't rebuild the panel under someone who is typing in its size box.
       if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
       box.innerHTML = practiceHtml;
-      UI.bindStepper($('#p-size').closest('[data-stepper]'), (v) => { localStorage.setItem('kl_practice_size', String(v)); toast('Practice length saved.'); });
+      UI.bindStepper($('#p-size').closest('[data-stepper]'), (v) => { setPracticeSize(v); toast('Practice length saved.'); });
     }
 
     // Item spread: every started item, by SRS stage and kind, from the saved copy.
@@ -1028,6 +1134,28 @@
       spreadHtml = Dash.spread(counts);
       const box = $('#dash-spread');
       if (box) box.innerHTML = spreadHtml;
+    }
+
+    // The workload check. Rebuilt from guardRes whenever the data or a setting changes.
+    function paintGuard() {
+      if (stale()) return;
+      guardHtml = X.loaded && guardRes ? GuardView.panel(guardRes, settings.sessionSize) : '';
+      const box = $('#dash-guard');
+      if (box) { box.innerHTML = guardHtml; bindGuard(); }
+    }
+    function bindGuard() {
+      const box = $('#dash-guard');
+      if (!box) return;
+      box.querySelectorAll('[data-guard-snooze]').forEach((b) => {
+        b.onclick = () => {
+          const w = guardRes && guardRes.warnings.find((x) => x.id === b.dataset.guardSnooze);
+          if (w) Guard.snooze(w);
+          paintGuard();
+        };
+      });
+      box.querySelectorAll('[data-guard-session]').forEach((b) => {
+        b.onclick = () => { const n = Number(b.dataset.guardSession); setSessionSize(n); toast(`Sessions are now ${n} reviews, so each one is easier to finish.`); paintGuard(); };
+      });
     }
 
     function bindPlan() {
@@ -1048,6 +1176,7 @@
         const need = Math.ceil(kanji.length * 0.9);
         const done = kanji.filter((x) => { const a = Local.assignmentFor(x.id); return a && a.data.srs_stage >= 5; }).length;
         X.progress = need ? { fraction: Math.min(1, done / need) } : null;
+        lastFrac = X.progress ? X.progress.fraction : null;
         const box = $('#lvl-progress');
         if (box) box.innerHTML = progressHtml;
       } catch (e) { /* progress is a nice-to-have */ }
@@ -1077,9 +1206,20 @@
       });
       const nb = $('#dash-numbers'); if (nb) nb.innerHTML = numbersHtml;
 
+      // Workload check: what you are piling up against what you manage. Needs your review history, so it waits for that.
+      guardRes = Guard.evaluate(guardContext(user.id, lvl, X.hist, X.rs, X.progress ? X.progress.fraction : null));
+      const guardOn = Guard.prefs().on;
+      paintGuard();
+      // A toast the first time per day the picture gets worse (and only once the saved copy is fresh, so a stale one can't cry wolf).
+      if (!announced && X.loaded && guardOn && (Local._lastRefresh > 0 || navigator.onLine === false)) {
+        announced = true;
+        const msg = Guard.toAnnounce(guardRes);
+        if (msg) toast(msg, 7000);
+      }
+
       // Off-track warning against the saved plan (needs the level progress, so it waits for that).
       const plan = Plan.load(user.id);
-      planHtml = plan && X.progress && !Plan.dismissedToday() ? PlanView.banner(plan, Plan.evaluate(plan, lvl + X.progress.fraction, now)) : '';
+      planHtml = plan && X.progress && !Plan.dismissedToday() ? PlanView.banner(plan, Plan.evaluate(plan, lvl + X.progress.fraction, now), guardOn ? guardRes : null) : '';
       const pb = $('#dash-plan'); if (pb) { pb.innerHTML = planHtml; bindPlan(); }
 
       // Today's lessons and reviews against the plan (all from the saved copy, no requests).
@@ -1099,6 +1239,7 @@
           reviewsDue: Local.reviewsDue().length,
           reviewsTotal: rt.total,
           acc,
+          guard: Object.assign({ on: guardOn }, guardRes.allowance, { note: guardRes.recovery ? guardRes.recovery.planText : '' }),
           // Reviews a day from new lessons at your accuracy now (the saved figure is from when you made the plan).
           rpd: plan.lpd ? Plan.reviewsPerDay(plan.lpd, Math.max(1, (plan.end - plan.start) / 86400000), acc != null ? acc : planAcc) : 0,
         });
@@ -1125,7 +1266,7 @@
       try {
         const [lp, hist, rs] = await Promise.all([Stats.savedProgressions(), Stats.savedHistory(), Stats.savedReviewStats()]);
         if (stale()) return;
-        X.lp = lp ? lp.rows : null; X.hist = hist; X.rs = rs; X.rsSummary = null;
+        X.lp = lp ? lp.rows : null; X.hist = hist; X.rs = rs; X.rsSummary = null; X.loaded = true;
         paintExtras();
         if (!lp || Date.now() - lp.at > 5 * 60000) {
           Stats.fetchProgressions({ background: true }).then((rows) => { X.lp = rows; paintExtras(); }).catch(() => {});
@@ -1133,7 +1274,7 @@
         if (!rs || Date.now() - rs.at > 30 * 60000) {
           Stats.syncReviewStats({}).then((r) => { X.rs = r; X.rsSummary = null; paintExtras(); }).catch(() => {});
         }
-      } catch (e) { /* these widgets are a nice-to-have */ }
+      } catch (e) { X.loaded = true; /* these widgets are a nice-to-have */ }
     }
 
     const redraw = () => { draw(); drawProgress(); };
@@ -1146,7 +1287,11 @@
     // Keep it current: when data changes, once a half-minute (reviews fall due with time), and a quiet sync every few minutes.
     onUserChange = () => { draw(true); drawProgress(); };
     // The review length can also be changed in Settings, so keep the box on this screen in step with it.
-    const onSettings = () => { const st = $('#h-size'); if (st) UI.setStepper(st.closest('[data-stepper]'), settings.sessionSize); };
+    const onSettings = () => {
+      const st = $('#h-size'); if (st) UI.setStepper(st.closest('[data-stepper]'), settings.sessionSize);
+      const ps = $('#p-size'); if (ps) UI.setStepper(ps.closest('[data-stepper]'), settings.practiceSize);
+      if (X.loaded) paintExtras(); // the workload guard's settings (or the session length) may have changed
+    };
     window.addEventListener('kl-settings', onSettings);
     const unsub = Local.subscribe(redraw);
     const tick = setInterval(() => { if (document.visibilityState === 'visible') draw(); }, 30000);
@@ -1188,7 +1333,7 @@
     const user = await ensureLocal();
     if (my !== routeSeq) return;
     PlanView.mount({
-      el: app, user, toast, syncFailed,
+      el: app, user, toast, syncFailed, openSettings,
       currentUser: () => (userCache ? userCache.u : user),
       setCleanup: (fn) => { cleanup = fn; },
     });
@@ -1625,6 +1770,7 @@
     // Worked out locally. Items you already answered that are still waiting to be sent are left out.
     const all = Local.reviewsDue();
     if (!all.length) { Session.clear(); return empty('No reviews right now', 'Come back when your next reviews are due.'); }
+    guardNow().then((r) => { if (r) guardSevSeen = r.sev; }).catch(() => {}); // how bad it was before this session, to say so if it gets better
 
     // Pick up an unfinished session if there is one.
     let chosen, progress;
@@ -1682,7 +1828,8 @@
     app.innerHTML = `<div class="wrap">
       <div class="center"><h1>Session complete</h1>
       <p>${total} item${total === 1 ? '' : 's'} reviewed, ${accuracy}% of answers correct.</p>
-      <p class="muted" id="sync">Sending results to WaniKani…</p></div>
+      <p class="muted" id="sync">Sending results to WaniKani…</p>
+      <p class="muted" id="guard-note"></p></div>
       ${missed.length ? `<div class="panel"><h2>Items you missed</h2><div class="tiles">${missed.map((i) => tile(i.subject)).join('')}</div></div>` : ''}
       <div class="row" style="justify-content:center">
         ${leftOver > 0 ? '<a class="btn" href="#/reviews" id="more">Keep going</a>' : ''}
@@ -1690,6 +1837,16 @@
       </div></div>`;
     const more = $('#more');
     if (more) more.addEventListener('click', (e) => { e.preventDefault(); route(); });
+    // Good news when the pile is back under control, a nudge when it isn't (the workload guard).
+    if (Guard.prefs().on) {
+      guardNow().then((res) => {
+        const m = res && Guard.afterReviews(res, { sev: guardSevSeen });
+        if (!m) return;
+        const el = $('#guard-note'); if (el) { el.textContent = m.text; el.classList.toggle('good', m.good); }
+        if (m.good) toast(m.text, 5000);
+        guardSevSeen = res.sev;
+      }).catch(() => {});
+    }
     api.flushPending().then((n) => {
       const el = $('#sync');
       if (!el) return;
@@ -1779,6 +1936,9 @@
     if (stale()) return;
     const all = Local.lessonsAvailable();
     if (!all.length) return empty('No lessons right now', 'New lessons unlock as you pass items in your reviews.');
+    // If reviews are piled up, say so before adding to the pile (a prompt; "Start lessons anyway" always works).
+    if (!(await lessonsGate(false))) return;
+    if (stale()) return;
 
     const subs = await api.getSubjects(all.slice(0, LESSON_CAP).map((a) => a.data.subject_id));
     if (stale()) return;
@@ -1852,10 +2012,20 @@
           app.innerHTML = `<div class="wrap center"><h1>Batch complete</h1>
             <p>${batch.length} item${batch.length === 1 ? '' : 's'} started. The first review comes in about four hours.</p>
             <p class="muted" id="sync">Saving to WaniKani…</p>
+            <p class="muted" id="guard-note"></p>
             <div class="row" style="justify-content:center">
               ${rest.length ? `<button class="btn" id="nb" type="button">Next batch (${rest.length} left)</button>` : ''}
               <a class="btn ghost" href="#/">Back home</a></div></div>`;
-          const nb = $('#nb'); if (nb) nb.onclick = () => lessonBatch(rest, my);
+          const nb = $('#nb'); if (nb) nb.onclick = async () => { if (await lessonsGate(true)) lessonBatch(rest, my); };
+          // What these lessons add, and where that leaves today (the workload guard).
+          if (Guard.prefs().on) {
+            guardNow().then((res) => {
+              if (!res) return;
+              const el = $('#guard-note'); if (el) el.textContent = Guard.afterLessons(res, batch.length);
+              const a = res.allowance;
+              if (a.paused || (a.allowed && a.done >= a.allowed)) toast('That’s today’s safe amount of lessons. The rest can wait until tomorrow.', 6000);
+            }).catch(() => {});
+          }
           api.flushPending().then((n) => {
             const el = $('#sync');
             if (el) el.textContent = n ? 'Still waiting to send. It will retry automatically.' : 'Saved to WaniKani.';

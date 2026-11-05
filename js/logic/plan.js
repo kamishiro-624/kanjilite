@@ -107,6 +107,18 @@
   /** Reviews a day that `lpd` new lessons a day create over a plan of `days` days at this accuracy (for the live figure). */
   function reviewsPerDay(lpd, days, acc) { return simulate(lpd, days, acc).avg; }
 
+  /**
+   * The earliest end date whose busiest weeks stay within `ceiling` reviews a day. mk(end) must return a Plan.make result.
+   * Searches between `lo` (the earliest possible date) and `hi`; returns null if even `hi` is too heavy.
+   * More time means fewer lessons a day, so the busiest week only ever gets lighter as the date moves back.
+   */
+  function endForPeak(mk, ceiling, lo, hi) {
+    if (mk(lo).reviewsPeak <= ceiling) return lo;
+    if (mk(hi).reviewsPeak > ceiling) return null;
+    for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (mk(mid).reviewsPeak <= ceiling) hi = mid; else lo = mid; }
+    return hi;
+  }
+
   /** The curve a saved plan was made with, or null for plans saved before curves existed (those use the fastest weights). */
   function curveOf(p) {
     return p && Array.isArray(p.w) && p.w.length && Number.isFinite(p.w0) ? (L) => p.w[L - p.w0] : null;
@@ -169,5 +181,5 @@
     return { total, done, over: Math.max(0, done - total) };
   }
 
-  root.Plan = { DEFAULT_ACC, DEFAULT_ITEMS, fastestDays, make, curveOf, shapeFields, reviewsPerDay, reviewsToday, levelFraction, evaluate, load, save, clear, dismissedToday, dismiss };
+  root.Plan = { DEFAULT_ACC, DEFAULT_ITEMS, fastestDays, make, endForPeak, curveOf, shapeFields, reviewsPerDay, reviewsToday, levelFraction, evaluate, load, save, clear, dismissedToday, dismiss };
 })(window);

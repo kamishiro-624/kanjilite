@@ -28,26 +28,40 @@
     navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.go) location.hash = e.data.go; });
   }
 
-  async function show(title, body) {
-    const opts = { body, tag: 'kl-reviews', data: { url: '#/reviews' } };
+  async function show(title, body, extra) {
+    const x = extra || {};
+    const opts = { body, tag: x.tag || 'kl-reviews', data: { url: x.url || '#/reviews' } };
     try {
       const reg = await register();
       if (reg && reg.showNotification) { await reg.showNotification(title, opts); return true; }
     } catch (e) { /* fall through to the plain constructor */ }
     try {
       const n = new Notification(title, opts);
-      n.onclick = () => { window.focus(); location.hash = '#/reviews'; n.close(); };
+      n.onclick = () => { window.focus(); location.hash = x.url || '#/reviews'; n.close(); };
       return true;
     } catch (e) { return false; }
   }
 
   const setTitle = (n) => { document.title = enabled() && n > 0 ? `(${n}) ${BASE_TITLE}` : BASE_TITLE; };
 
+  /** The workload guard's serious warnings (reviews piling up, and so on), as a background notification at most once a day.
+      Only when you are not looking at the app, and only if notifications are switched on. */
+  async function guardCheck(s) {
+    if (!cfg || !cfg.guard || s.reviews < 40) return;
+    if (document.visibilityState === 'visible' && document.hasFocus()) return;
+    try {
+      try { await cfg.sync(); } catch (e) { /* use what we have */ }   // don't warn about a pile that was cleared on another device
+      const g = await cfg.guard();
+      if (g) await show(g.title, g.body, { tag: 'kl-guard', url: '#/' });
+    } catch (e) { /* the guard is a nice-to-have */ }
+  }
+
   async function check() {
     if (!cfg || busy) return;
     let s = cfg.summary();
     setTitle(s.reviews);
     if (!enabled()) return;
+    guardCheck(s);
     const min = minReviews();
     if (s.reviews < min) { wr(ARMED, '1'); return; }       // nothing (or too little) due: ready for the next wave
     if (rd(ARMED) === '0') return;                           // this wave has been announced already
@@ -74,7 +88,7 @@
     timer = setTimeout(() => { check(); schedule(); }, Math.min(Math.max(wait, 1000), 2147000000));
   }
 
-  /** cfg: { summary(), sync(), subscribe(fn) }. Safe to call more than once. */
+  /** cfg: { summary(), sync(), subscribe(fn), guard() (optional: resolves to { title, body } or null) }. Safe to call more than once. */
   function start(c) {
     if (cfg) return;
     cfg = c;

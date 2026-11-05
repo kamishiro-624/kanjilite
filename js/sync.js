@@ -26,10 +26,11 @@
   // The only keys that are ever synced. The Firestore rules in SYNC.md list the same ones, so a new setting
   // added to the app has to be added in both places.
   const SYNCED = ['kl_plan', 'kl_plan_dismissed', 'kl_target_level', 'kl_pace_basis', 'kl_pace_custom', 'kl_rev_days',
-    'kl_session_size', 'kl_lesson_batch', 'kl_b2b', 'kl_first', 'kl_show_level', 'kl_show_stage', 'kl_srs_toast', 'kl_autoplay', 'kl_wrong_delay'];
+    'kl_session_size', 'kl_lesson_batch', 'kl_b2b', 'kl_first', 'kl_show_level', 'kl_show_stage', 'kl_srs_toast', 'kl_autoplay', 'kl_wrong_delay',
+    'kl_guard', 'kl_guard_cap', 'kl_guard_gate'];
 
   // Never copied anywhere (also left out of backup files): caches, queues, rate-limit bookkeeping and this feature's own state.
-  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|practice_mistakes|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
+  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|guard_snooze|guard_last|guard_pushed|practice_mistakes|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
 
   const raw = { get: Storage.prototype.getItem, set: Storage.prototype.setItem, del: Storage.prototype.removeItem };
   const read = (k) => { try { return raw.get.call(localStorage, k); } catch (e) { return null; } };

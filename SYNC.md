@@ -2,7 +2,7 @@
 
 KanjiLite can keep your **plan and settings** the same on every device, using Google sign-in or an email address and password, and a tiny database in a Firebase project that you own. On Firebase's free Spark plan it costs nothing and needs no card. Without it, everything stays in the browser as before.
 
-**Synced:** your plan, review and lesson settings, pace choices and the daily review counts behind your streak.
+**Synced:** your plan, review and lesson settings, workload guard settings (on/off, comfortable reviews a day, the lesson prompt), pace choices and the daily review counts behind your streak.
 **Not synced:** the theme and notification settings (per device), WaniKani data (each device downloads its own) and your API token, which only ever syncs if you set `allowTokenSync: true` in `js/config.js` and the person turns it on.
 
 If the sync database is unreachable or over its limits, KanjiLite carries on working from the browser; only Settings shows a sync error.
@@ -38,7 +38,8 @@ service cloud.firestore {
         && doc.data.keys().hasOnly([
           'kl_plan', 'kl_plan_dismissed', 'kl_target_level', 'kl_pace_basis', 'kl_pace_custom', 'kl_rev_days',
           'kl_session_size', 'kl_lesson_batch', 'kl_b2b', 'kl_first', 'kl_show_level', 'kl_show_stage',
-          'kl_srs_toast', 'kl_autoplay', 'kl_wrong_delay'
+          'kl_srs_toast', 'kl_autoplay', 'kl_wrong_delay',
+          'kl_guard', 'kl_guard_cap', 'kl_guard_gate'
         ])
         && fieldOk(doc.data, 'kl_plan', 2000)
         && fieldOk(doc.data, 'kl_rev_days', 20000)
@@ -54,7 +55,10 @@ service cloud.firestore {
         && fieldOk(doc.data, 'kl_show_stage', 40)
         && fieldOk(doc.data, 'kl_srs_toast', 40)
         && fieldOk(doc.data, 'kl_autoplay', 40)
-        && fieldOk(doc.data, 'kl_wrong_delay', 40);
+        && fieldOk(doc.data, 'kl_wrong_delay', 40)
+        && fieldOk(doc.data, 'kl_guard', 40)
+        && fieldOk(doc.data, 'kl_guard_cap', 40)
+        && fieldOk(doc.data, 'kl_guard_gate', 40);
     }
 
     match /users/{uid} {
@@ -67,6 +71,12 @@ service cloud.firestore {
 ```
 
 The Firebase console checks the rules when you publish and shows any error. If a future KanjiLite version syncs another setting, it has to be added to the list here and to `SYNCED` in `js/sync.js`. If you turn on `allowTokenSync`, also add `'kl_token'` to the list and `&& fieldOk(doc.data, 'kl_token', 200)`.
+
+## Upgrading from a version without the workload guard
+
+If you already set up sync before the workload guard existed, your published rules don't list its three settings (`kl_guard`, `kl_guard_cap`, `kl_guard_gate`), and Firestore refuses any write that includes a key the rules don't know. So **publish the rules above first, then deploy the new site files**. If you do it the other way round, syncing fails (Settings shows a sync error) until the rules are updated; nothing is lost, and the next sync after you publish them goes through.
+
+To check: in the Firebase console open **Firestore Database, Rules**, make sure `'kl_guard', 'kl_guard_cap', 'kl_guard_gate'` are in the `hasOnly` list and the three `fieldOk` lines are present, then press **Publish**.
 
 ## Protecting it
 
