@@ -1,5 +1,5 @@
 /* The Plan screen and the dashboard's "off track" banner.
-   Pick a level and a date (or tap a quick date); the pace and the daily workload update as you change either.
+   Pick a level and a date; the pace and the daily workload update as you change either.
    Saving makes it your plan, and the dashboard warns you when you fall behind it. */
 (function (root) {
   'use strict';
@@ -114,7 +114,6 @@
           <div class="field"><label for="p-target">Reach level</label>${UI.stepperHTML('p-target', st.target, { min: level + 1, max: MAX_LEVEL, step: 1, label: 'Target level' })}</div>
           <div class="field"><label for="p-end">By</label><input type="date" id="p-end" class="datein" value="${dayKey(st.end)}"></div>
         </div>
-        <div class="chips" id="plan-chips"></div>
         <div id="plan-status"></div>
       </div>
       <div id="plan-out"></div>
@@ -146,7 +145,6 @@
       $('#plan-status').innerHTML = statusHTML();
       const now = Date.now();
       if (st.end <= now) {
-        $('#plan-chips').innerHTML = '';
         $('#plan-out').innerHTML = '<div class="panel"><p class="error">Pick a date after today.</p></div>';
         return;
       }
@@ -154,19 +152,6 @@
       const guardOn = Guard.prefs().on;
       // The earliest date whose busiest weeks stay within what you can comfortably do. Same goal, lighter days.
       const comfy = guardOn ? Plan.endForPeak(compute, cap.value, p.earliest, now + 3000 * DAY) : null;
-
-      // Quick dates: shortcuts for the date field, not extra settings.
-      const quick = [{ label: 'Fastest', end: p.earliest }];
-      if (pace && pace.n) {
-        const est = Stats.estimate({ level, target: st.target, pace, elapsedDays: ls ? ls.elapsedDays : 0, progress: frac, now });
-        if (!est.already) quick.push({ label: 'Your pace', end: est.date });
-      }
-      if (comfy && comfy > p.earliest + DAY) quick.push({ label: 'Comfortable', end: comfy, tip: `Busiest weeks stay under ${num(cap.value)} reviews a day` });
-      const cur = dayKey(st.end);
-      $('#plan-chips').innerHTML = quick.map((x) => {
-        const e = endOfDay(dayKey(x.end));
-        return `<button type="button" class="chip${dayKey(e) === cur ? ' on' : ''}" data-end="${e}"${x.tip ? ` title="${esc(x.tip)}"` : ''}><b>${esc(x.label)}</b><span>${esc(dateText(x.end))}</span></button>`;
-      }).join('');
 
       const verdict = p.feasible ? '' : `<div class="banner">Quicker than WaniKani allows. The earliest for level ${st.target} is <b>${esc(dateText(p.earliest))}</b>, and the numbers below are for that date. <button class="link" id="use-earliest" type="button">Use that date</button></div>`;
       const canSave = p.feasible && frac != null;
@@ -185,7 +170,7 @@
       $('#plan-out').innerHTML = `${verdict}
         <div class="panel"><h2>What it takes</h2>
           <div class="cards">
-            <div class="card"><b>${r1(p.perLevel)}</b><span>days per level</span><small>Fastest: ${r1(p.fastestPerLevel)}</small></div>
+            <div class="card"><b>${r1(p.perLevel)}</b><span>days per level</span><small>${pace && pace.n ? `Yours so far: ${r1(pace.mean)} · ` : ''}fastest: ${r1(p.fastestPerLevel)}</small></div>
             <div class="card"><b>${num(p.lessonsPerDay)}</b><span>new lessons a day</span><small>${num(p.itemsLeft)} items${p.behind ? `, ${num(p.behind)} from earlier levels` : ''}</small></div>
             <div class="card"><b>~${num(p.reviewsAvg)}</b><span>reviews a day</span><small>Busiest weeks: ${num(p.reviewsPeak)}</small></div>
           </div>
@@ -200,7 +185,6 @@
           <div class="plan-table"><table><thead><tr><th>Reach level</th><th>By</th></tr></thead><tbody>${p.milestones.map((m) => `<tr><td>${m.level}</td><td>${esc(dateText(m.date))}</td></tr>`).join('')}</tbody></table></div>
         </details>`;
 
-      $('#plan-chips').querySelectorAll('.chip').forEach((b) => { b.onclick = () => setEnd(Number(b.dataset.end)); });
       const ue = $('#use-earliest'); if (ue) ue.onclick = () => setEnd(endOfDay(dayKey(p.earliest)));
       const uc = $('#use-comfy'); if (uc) uc.onclick = () => setEnd(endOfDay(dayKey(comfy)));
       const sv = $('#plan-save');

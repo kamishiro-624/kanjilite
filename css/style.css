@@ -664,11 +664,6 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .plan-saved { margin: 4px 0 0; padding: 8px 12px; border-radius: 10px; border-left: 4px solid var(--line); background: var(--hover); }
 .plan-saved.behind, .plan-saved.late { border-left-color: var(--bad); }
 .plan-saved.on, .plan-saved.ahead, .plan-saved.done { border-left-color: var(--good); }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; }
-.chip { display: grid; gap: 0; text-align: left; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; }
-.chip:hover { background: var(--hover); }
-.chip.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
-.chip span { color: var(--muted); font-size: .8rem; }
 .plan .fine { font-size: .8rem; color: var(--muted); margin: 10px 0 0; }
 .plan details > summary { cursor: pointer; }
 .plan-table { max-height: 340px; overflow: auto; margin-top: 10px; }
