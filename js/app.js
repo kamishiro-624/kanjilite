@@ -21,6 +21,7 @@
     get srsToast() { return localStorage.getItem('kl_srs_toast') !== '0'; },
     get autoplay() { return localStorage.getItem('kl_autoplay') === '1'; }, // off unless switched on
     get wrongDelay() { return getNum('kl_wrong_delay', 1000); }, // ms "Next" stays locked after a wrong answer
+    get practiceSize() { return Math.max(5, Math.min(200, getNum('kl_practice_size', 20))); }, // items in one extra-practice session
     get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark
   };
   function applyTheme() {
@@ -840,7 +841,7 @@
     $('#nav').hidden = !api.token;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('on', (a.dataset.nav || 'home') === name));
     if (!api.token) return loginView();
-    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView, search: searchView, plan: planView };
+    const views = { home: homeView, reviews: reviewsView, lessons: lessonsView, levels: levelsView, stats: statsView, search: searchView, plan: planView, practice: practiceView };
     (views[name] || homeView)(my, parts[1]).catch((err) => fail(err, my));
   }
   window.addEventListener('hashchange', route);
@@ -920,9 +921,10 @@
     let critHtml = '';
     let planHtml = '';
     let todayHtml = '';
+    let practiceHtml = '';
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
-    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null };
+    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null };
 
     function draw(force) {
       if (stale()) return;
@@ -952,6 +954,7 @@
           <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
           <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
         </div>
+        <div id="dash-practice">${practiceHtml}</div>
         <div id="lvl-progress">${progressHtml}</div>
         <div id="dash-numbers">${numbersHtml}</div>
         <div id="dash-critical">${critHtml}</div>
@@ -968,6 +971,7 @@
       </div>`;
 
       bindPlan();
+      paintPractice();
       UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
       $('#h-more').onclick = () => openSettings('reviews');
       const discard = $('#discard-session');
@@ -990,6 +994,23 @@
       };
     }
 
+    // Extra practice: counts come from the saved copy (no requests); "critical" and "current level" fill in once their data has loaded.
+    function paintPractice() {
+      if (stale()) return;
+      const ctx = {
+        all: Local.allAssignments(), assignmentFor: Local.assignmentFor, mistakes: Practice.readLog(user.id),
+        rows: X.rs ? X.rs.rows : null, levelIds: X.levelIds, size: settings.practiceSize,
+      };
+      const kinds = Practice.KINDS.map((k) => ({ key: k.key, title: k.title, desc: k.desc, count: Practice.count(k.key, ctx) }));
+      practiceHtml = Dash.practice(kinds, UI.stepperHTML('p-size', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' }));
+      const box = $('#dash-practice');
+      if (!box) return;
+      // Don't rebuild the panel under someone who is typing in its size box.
+      if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+      box.innerHTML = practiceHtml;
+      UI.bindStepper($('#p-size').closest('[data-stepper]'), (v) => { localStorage.setItem('kl_practice_size', String(v)); toast('Practice length saved.'); });
+    }
+
     function bindPlan() {
       const d = $('#plan-dismiss');
       if (d) d.onclick = () => { Plan.dismiss(); planHtml = ''; const b = $('#dash-plan'); if (b) b.innerHTML = ''; };
@@ -1003,6 +1024,7 @@
         const subs = await Local.levelSubjects(lvl, { background: true });
         if (stale()) return;
         progressHtml = Dash.levelProgress(lvl, subs, Local.assignmentFor);
+        X.levelIds = new Set(subs.filter((x) => !x.data.hidden_at).map((x) => x.id));
         const kanji = subs.filter((x) => x.object === 'kanji' && !x.data.hidden_at);
         const need = Math.ceil(kanji.length * 0.9);
         const done = kanji.filter((x) => { const a = Local.assignmentFor(x.id); return a && a.data.srs_stage >= 5; }).length;
@@ -1076,6 +1098,7 @@
         critHtml = Dash.critical(missing.length && !items.length ? null : items, cr.count, 75, tile);
       }
       const cb = $('#dash-critical'); if (cb) cb.innerHTML = critHtml;
+      paintPractice();
     }
 
     async function loadExtras() {
@@ -1206,6 +1229,8 @@
       const item = st.uncommitted;
       if (!item) return;
       st.uncommitted = null;
+      // Remember what you got wrong, for the "Recent mistakes" practice set (kept on this device).
+      if (item.incorrect.meaning + item.incorrect.reading > 0 && userCache) Practice.noteMistakes(userCache.u.id, [item.subject.id]);
       if (practice) return;
       api.queueReview({
         assignment_id: item.assignment.id,
@@ -1242,6 +1267,7 @@
       while (st.pool.length < BATCH && st.queue.length) st.pool.push(st.queue.shift());
       if (!st.pool.length) {
         st.phase = 'done';
+        document.body.classList.remove('in-quiz'); // the summary screen gets its header back
         if (opts.persist) Session.clear();
         opts.onFinish(st);
         return;
@@ -1652,6 +1678,77 @@
       el.textContent = lost > 0 ? `WaniKani did not accept ${lost} result${lost > 1 ? 's' : ''} (already reviewed elsewhere, or no longer due). ${n ? saved : 'The rest were saved.'}` : saved;
       if (lost > 0) el.classList.add('error');
     }).catch((e) => { const el = $('#sync'); if (el) el.textContent = e.message + ' Your results are kept and will retry.'; });
+  }
+
+  // ---------- extra practice ----------
+  // Quizzes on items you already know. Same screen as a review, but nothing is sent to WaniKani and no SRS stage moves.
+  async function practiceView(my, kind) {
+    const stale = () => my !== routeSeq;
+    const def = Practice.KINDS.find((k) => k.key === kind);
+    if (!def) return go('#/');
+    loading('Getting your practice ready…');
+    const user = await ensureLocal();
+    if (stale()) return;
+    const ctx = {
+      all: Local.allAssignments(), assignmentFor: Local.assignmentFor, mistakes: Practice.readLog(user.id),
+      rows: null, levelIds: null, size: settings.practiceSize,
+    };
+    if (kind === 'critical') {
+      const rs = await Stats.savedReviewStats().catch(() => null);
+      ctx.rows = rs ? rs.rows : null;
+      if (!ctx.rows) {
+        try { ctx.rows = (await Stats.syncReviewStats({ background: false })).rows; } catch (e) { ctx.rows = null; }
+      }
+      if (stale()) return;
+      if (!ctx.rows) return empty('Could not load your statistics', 'Check your connection and try again.');
+    }
+    if (kind === 'level') {
+      const subs = await Local.levelSubjects(user.level).catch(() => null);
+      if (stale()) return;
+      if (!subs) return empty('Could not load this level', 'Check your connection and try again.');
+      ctx.levelIds = new Set(subs.filter((x) => !x.data.hidden_at).map((x) => x.id));
+    }
+    const picked = Practice.select(kind, ctx).items;
+    if (!picked.length) return empty('Nothing to practise here yet', def.empty);
+
+    const ids = picked.map((a) => a.data.subject_id);
+    const subs = await api.getSubjects(ids);
+    const synonyms = Local.synonyms(ids);
+    if (stale()) return;
+    const items = picked.filter((a) => subs.has(a.data.subject_id)).map((a) => makeItem(a, subs.get(a.data.subject_id), synonyms.get(a.data.subject_id)));
+    if (!items.length) return empty('Nothing to practise here yet', def.empty);
+    shuffle(items);
+    runPractice(items, def, my);
+  }
+
+  function runPractice(items, def, my, again) {
+    runQuiz({
+      items,
+      practice: true,
+      quitMessage: 'Quit this practice? Nothing is lost, and nothing here changes your WaniKani progress.',
+      onFinish: (st) => {
+        if (my !== routeSeq) return;
+        const accuracy = st.answered ? Math.round(st.correct / st.answered * 100) : 100;
+        const missed = st.done.filter((i) => i.incorrect.meaning + i.incorrect.reading > 0);
+        app.innerHTML = `<div class="wrap">
+          <div class="center"><h1>Practice complete</h1>
+          <p>${esc(def.title)}: ${items.length} item${items.length === 1 ? '' : 's'}, ${accuracy}% of answers correct.</p>
+          <p class="muted">This did not change your WaniKani progress.</p></div>
+          ${missed.length ? `<div class="panel"><h2>Items you missed</h2><div class="tiles">${missed.map((i) => tile(i.subject)).join('')}</div></div>` : ''}
+          <div class="row" style="justify-content:center">
+            ${missed.length ? '<button type="button" class="btn" id="p-missed">Practise the missed ones</button>' : ''}
+            <a class="btn${missed.length ? ' ghost' : ''}" href="#/practice/${esc(def.key)}" id="p-again">Practise more</a>
+            <a class="btn ghost" href="#/">Back home</a>
+          </div></div>`;
+        const mb = $('#p-missed');
+        if (mb) mb.onclick = () => {
+          const redo = missed.map((i) => makeItem(i.assignment, i.subject, i.synonyms));
+          runPractice(shuffle(redo), Object.assign({}, def, { title: def.title + ' (missed)' }), my);
+        };
+        const ag = $('#p-again');
+        if (ag) ag.addEventListener('click', (e) => { e.preventDefault(); route(); });
+      },
+    });
   }
 
   // ---------- lessons ----------

@@ -29,7 +29,7 @@
     'kl_session_size', 'kl_lesson_batch', 'kl_b2b', 'kl_first', 'kl_show_level', 'kl_show_stage', 'kl_srs_toast', 'kl_autoplay', 'kl_wrong_delay'];
 
   // Never copied anywhere (also left out of backup files): caches, queues, rate-limit bookkeeping and this feature's own state.
-  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
+  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|practice_mistakes|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
 
   const raw = { get: Storage.prototype.getItem, set: Storage.prototype.setItem, del: Storage.prototype.removeItem };
   const read = (k) => { try { return raw.get.call(localStorage, k); } catch (e) { return null; } };

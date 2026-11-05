@@ -109,5 +109,23 @@
     return `<div class="panel nums"><h2>Your numbers</h2><div class="cards">${cards.join('')}</div>${note}</div>`;
   }
 
-  root.Dash = { levelProgress, critical, numbers, STAGES, SHADES, STAGE_NAMES };
+  // ---------------------------------------------------------------- extra practice
+
+  /** kinds: [{ key, title, desc, count }] (count null while loading); sizeHTML: the "items per practice" stepper. */
+  function practice(kinds, sizeHTML) {
+    const card = (k) => {
+      const none = k.count === 0;
+      const n = k.count == null ? '…' : plural(k.count, 'item');
+      const inner = `<span class="pk-title">${esc(k.title)}</span><span class="pk-desc">${esc(k.desc)}</span><span class="pk-n">${n}</span>`;
+      return none
+        ? `<span class="pk off" aria-disabled="true">${inner}</span>`
+        : `<a class="pk" href="#/practice/${esc(k.key)}">${inner}</a>`;
+    };
+    return `<div class="panel practice"><div class="row between"><h2>Extra practice</h2>
+      <label class="pk-size muted">Items per practice ${sizeHTML}</label></div>
+      <p class="muted pk-note">Nothing here changes your WaniKani progress. Practise as much as you like.</p>
+      <div class="pk-grid">${kinds.map(card).join('')}</div></div>`;
+  }
+
+  root.Dash = { levelProgress, critical, numbers, practice, STAGES, SHADES, STAGE_NAMES };
 })(window);

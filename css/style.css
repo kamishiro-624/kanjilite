@@ -754,3 +754,19 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 #toast { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
 .wrap { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
 dialog { max-height: 90vh; max-height: 90dvh; }
+
+/* ---- extra practice ---- */
+.practice h2 { margin: 0; }
+.pk-size { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; }
+.pk-note { margin: 4px 0 10px; font-size: .88rem; }
+.pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.pk {
+  display: flex; flex-direction: column; gap: 2px; min-height: 76px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink); text-decoration: none;
+}
+a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--muted); }
+.pk-title { font-weight: 600; }
+.pk-desc { color: var(--muted); font-size: .8rem; line-height: 1.35; flex: 1; }
+.pk-n { font-size: .85rem; font-variant-numeric: tabular-nums; }
+.pk.off { opacity: .5; }
+@media (max-width: 420px) { .pk-grid { grid-template-columns: 1fr 1fr; } .pk { padding: 10px 12px; } }
