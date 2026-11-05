@@ -1277,7 +1277,19 @@
       const stage = item.assignment.data.srs_stage || 0;
       const showLevel = settings.showLevel;
       const showStage = settings.showStage && !practice && stage > 0;
-      app.innerHTML = `<div class="quiz">
+      const cardHTML = `<div class="qcard t-${typeClass(s.object)}">
+            ${showLevel || showStage ? `<div class="qmeta">
+              ${showLevel ? `<span class="qpill qlevel">Level ${s.data.level}</span>` : ''}
+              ${showStage ? `<span class="qpill qstage" title="Current SRS stage">${esc(STAGES[stage])}</span>` : ''}
+            </div>` : ''}
+            <div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>
+            <div class="qlabel">${esc(label)}</div>
+          </div>`;
+      const isReading = kind === 'reading';
+      let input = $('#q-input');
+      const rebuild = !(input && $('#q-form') && $('#q-box') && app.firstElementChild && app.firstElementChild.classList.contains('quiz'));
+      if (rebuild) {
+        app.innerHTML = `<div class="quiz">
         <div class="qtop">
           <button class="link" id="q-quit" type="button">Quit</button>
           <span class="qstats" id="q-stats"></span>
@@ -1285,42 +1297,66 @@
         </div>
         <div class="progress"><i id="q-bar"></i></div>
         <div class="qbox" id="q-box">
-          <div class="qcard t-${typeClass(s.object)}">
-            ${showLevel || showStage ? `<div class="qmeta">
-              ${showLevel ? `<span class="qpill qlevel">Level ${s.data.level}</span>` : ''}
-              ${showStage ? `<span class="qpill qstage" title="Current SRS stage">${esc(STAGES[stage])}</span>` : ''}
-            </div>` : ''}
-            <div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>
-            <div class="qlabel">${esc(label)}</div>
-          </div>
+          ${cardHTML}
           <form id="q-form" class="answer" autocomplete="off">
-            <input id="q-input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"
-              lang="${kind === 'reading' ? 'ja' : 'en'}" placeholder="${kind === 'reading' ? 'こたえ' : 'Your answer'}" aria-label="${esc(label)}">
+            <input id="q-input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done">
             <button id="q-go" type="submit">Check</button>
           </form>
         </div>
         <div class="qmsg" id="q-msg"></div>
         <div id="q-feedback"></div>
       </div>`;
+        input = $('#q-input');
+      } else {
+        // Same input element, same focus: the on-screen keyboard stays open between questions.
+        const box = $('#q-box');
+        box.className = 'qbox';
+        box.querySelector('.qcard').outerHTML = cardHTML;
+        const form = $('#q-form');
+        form.className = 'answer';
+        const go = $('#q-go');
+        go.textContent = 'Check';
+        go.className = '';
+        go.removeAttribute('aria-disabled');
+        go.style.removeProperty('--lock');
+        $('#q-feedback').innerHTML = '';
+        input.classList.remove('shake');
+        input.removeAttribute('aria-readonly');
+        input.value = '';
+        $('#q-msg').textContent = '';
+        $('#q-msg').classList.remove('warn');
+      }
+      input.lang = isReading ? 'ja' : 'en';
+      input.placeholder = isReading ? 'こたえ' : 'Your answer';
+      input.setAttribute('aria-label', label);
       updateTop();
-      const input = $('#q-input');
-      input.focus();
+      // preventScroll: the page must not jump (and push the card off screen) when the keyboard comes up.
+      try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+      if (window.scrollY) window.scrollTo(0, 0);
 
-      if (kind === 'reading') {
+      if (rebuild) {
         input.addEventListener('input', (e) => {
-          if (e.isComposing || st.phase !== 'ask') return;
+          if (st.phase !== 'ask') {
+            // After an answer the box shows the verdict and must not change, but it stays focused so the keyboard stays up.
+            if (input.value !== st.shown) input.value = st.shown || '';
+            return;
+          }
+          if (e.isComposing || !st.cur || st.cur.kind !== 'reading') return;
           const v = Kana.toKana(input.value);
           if (v !== input.value) input.value = v;
         });
+        input.addEventListener('beforeinput', (e) => { if (st.phase !== 'ask' && e.cancelable) e.preventDefault(); });
+        // Tapping Check/Next must not pull focus off the answer box, or the keyboard closes.
+        $('#q-go').addEventListener('mousedown', (e) => { if (coarsePointer()) e.preventDefault(); });
+        $('#q-form').addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (st.phase === 'ask') submit();
+          else if (st.phase === 'feedback') {
+            if (Date.now() < st.lockUntil) nudge(); // still locked after a wrong answer
+            else next();
+          }
+        });
       }
-      $('#q-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        if (st.phase === 'ask') submit();
-        else if (st.phase === 'feedback') {
-          if (Date.now() < st.lockUntil) nudge(); // still locked after a wrong answer
-          else next();
-        }
-      });
       $('#q-quit').onclick = async () => {
         const ok = await UI.confirm({ title: 'Quit this session?', message: opts.quitMessage || 'Your progress will not be kept.', ok: 'Quit', cancel: 'Keep going', danger: true });
         if (ok) go('#/');
@@ -1443,6 +1479,7 @@
       srsTimer = setTimeout(hideSrsToast, 1900);
     }
 
+    const coarsePointer = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
     const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // A brief wash of green or red over the whole screen.
@@ -1466,7 +1503,8 @@
       const d = item.subject.data;
       const input = $('#q-input');
       const btn = $('#q-go');
-      input.readOnly = true;
+      st.shown = input.value;
+      input.setAttribute('aria-readonly', 'true');
       $('#q-form').classList.add(res.correct ? 'ok' : 'bad');
       btn.textContent = 'Next';
       msg('');
@@ -1500,7 +1538,9 @@
         <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted">or Ctrl/Cmd+Z</span></div>
         <details class="info"${res.correct ? '' : ' open'}><summary>Details</summary><div class="info-body">${renderInfo(item.subject, null)}</div></details>`;
       $('#q-undo').onclick = undo;
-      btn.focus();
+      // Touch screens: keep the cursor in the answer box so the keyboard stays open and Enter goes to the next card.
+      // Keyboard users still land on the button, as before.
+      if (coarsePointer()) { try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); } } else btn.focus();
     }
 
     // Keyboard undo, and make sure a finished card is saved when you leave the page.
@@ -1516,7 +1556,9 @@
     document.addEventListener('keydown', onKey);
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', commit);
+    document.body.classList.add('in-quiz');
     cleanup = () => {
+      document.body.classList.remove('in-quiz');
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', commit);

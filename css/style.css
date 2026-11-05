@@ -74,6 +74,8 @@
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+body { min-height: 100vh; min-height: 100dvh; }
+button, a, .select-btn, .tile { touch-action: manipulation; }
 body {
   margin: 0;
   background: var(--paper);
@@ -97,7 +99,10 @@ p { margin: 0 0 .75rem; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
   position: sticky; top: 0; z-index: 5;
+  transform: translateY(var(--vvt, 0px)); /* iOS: follow the visible area when the keyboard shifts the page */
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: .01em; }
 .brand-mark { font-family: var(--mincho); font-size: 1.5rem; color: var(--accent); line-height: 1; }
@@ -510,11 +515,20 @@ input.switch:checked::after { transform: translateX(18px); background: var(--acc
 .axes .link:disabled { opacity: .4; cursor: default; }
 .chart-hint { margin: 6px 0 0; }
 @media (max-width: 520px) {
-  .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* logo only; still read aloud */
-  .topbar { padding-left: 10px; padding-right: 10px; gap: 6px; }
-  .nav { gap: 0; }
-  .nav a, .nav button { padding: 6px 6px; font-size: .92rem; }
+  /* Two rows: logo, sync and settings on top; the five page links share a full-width row underneath. */
+  .topbar {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px 0; align-items: center;
+    padding-top: calc(6px + env(safe-area-inset-top, 0px)); padding-bottom: 4px;
+  }
+  .brand { grid-column: 1 / 4; grid-row: 1; min-width: 0; }
+  .nav { display: contents; }
+  .nav a[data-nav] { grid-row: 2; text-align: center; padding: 8px 2px; font-size: .95rem; white-space: nowrap; }
+  .nav .sync-btn { grid-column: 4; grid-row: 1; justify-self: end; }
+  .nav #open-settings { grid-column: 5; grid-row: 1; justify-self: end; }
+  .nav .sync-btn, .nav #open-settings { padding: 8px 8px; font-size: .88rem; white-space: nowrap; }
+  .nav a, .nav button { min-height: 40px; }
   .axis input { width: 5.6em; }
+  .wrap { padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); }
 }
 .chart-hint, .stats .fine { font-size: .8rem; color: var(--muted); }
 
@@ -602,7 +616,9 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 @media (max-width: 370px) {
-  .nav a, .nav button { padding: 6px 4px; font-size: .86rem; }
+  .nav a[data-nav] { font-size: .86rem; }
+  .nav .sync-btn, .nav #open-settings { padding: 8px 5px; font-size: .82rem; }
+  .brand-mark { font-size: 1.3rem; }
 }
 
 /* Pitch accent diagrams */
@@ -712,3 +728,29 @@ rect.hm:hover { stroke: var(--ink); stroke-width: 1.5; }
 @keyframes sync-pulse { 50% { opacity: .35; } }
 @media (max-width: 520px) { .sync-btn .sync-long { display: none; } .sync-btn .sync-short { display: inline; } }
 @media (prefers-reduced-motion: reduce) { .sync-btn[data-state="busy"] .sync-dot { animation: none; } }
+
+/* ---- phones: quiz screen ---- */
+/* The quiz has its own Quit button, so the site header steps aside on small screens and the card gets the room. */
+@media (max-width: 600px) {
+  .in-quiz .topbar { display: none; }
+  .in-quiz #srs-toast { top: calc(10px + env(safe-area-inset-top, 0px)); }
+  .quiz { padding-top: calc(10px + env(safe-area-inset-top, 0px)); padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); }
+  .qtop .link { min-height: 40px; padding: 8px 10px; }
+  .answer input { font-size: 1.35rem; padding: 14px 8px; }
+  .answer button { min-width: 84px; padding: 0 16px; }
+}
+/* Keyboard open: tighten the card so the glyph, the answer box and the progress bar all stay on screen. */
+.kb-open .quiz { padding-bottom: 12px; }
+.kb-open .qglyph { font-size: clamp(44px, 14vw, 72px); line-height: 1.1; }
+.kb-open .qglyph.long { font-size: clamp(30px, 8vw, 44px); }
+.kb-open .qcard { padding-top: 10px; }
+.kb-open .qlabel { margin-top: 8px; padding: 6px 12px; }
+.kb-open .progress { margin-bottom: 8px; }
+.kb-open .qmsg { margin: 4px 2px; min-height: 1.3em; }
+@media (max-height: 520px) and (orientation: landscape) {
+  .qglyph { font-size: clamp(40px, 16vh, 64px); }
+  .qlabel { margin-top: 6px; padding: 5px 12px; }
+}
+#toast { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+.wrap { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
+dialog { max-height: 90vh; max-height: 90dvh; }
