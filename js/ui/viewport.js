@@ -17,12 +17,23 @@
     root.classList.toggle('kb-open', kb);
     root.style.setProperty('--vvh', Math.round(vv.height) + 'px');
     root.style.setProperty('--vvt', (kb ? Math.round(vv.offsetTop) : 0) + 'px');
-    if (kb && document.body.classList.contains('in-quiz') && window.scrollY) window.scrollTo(0, 0);
+    // Only snap back to the top while the answer box itself is focused. Typing in a synonym or note box (down in
+    // the details) must be left alone, otherwise the page keeps jumping away from what you're typing.
+    var ae = document.activeElement;
+    var inAnswer = ae && ae.id === 'q-input';
+    if (kb && inAnswer && document.body.classList.contains('in-quiz') && window.scrollY) window.scrollTo(0, 0);
   }
   vv.addEventListener('resize', update);
   vv.addEventListener('scroll', update);
   window.addEventListener('orientationchange', function () { setTimeout(function () { base = window.innerHeight; update(); }, 300); });
-  document.addEventListener('focusin', function () { setTimeout(update, 50); });
+  document.addEventListener('focusin', function (e) {
+    setTimeout(update, 50);
+    // A note/synonym box inside the details: bring it above the keyboard once, after the keyboard has opened.
+    var t = e.target;
+    if (t && t.closest && t.closest('.mat-box') && /^(INPUT|TEXTAREA)$/.test(t.tagName)) {
+      setTimeout(function () { try { t.scrollIntoView({ block: 'center', behavior: 'auto' }); } catch (err) { /* ignore */ } }, 350);
+    }
+  });
   document.addEventListener('focusout', function () { setTimeout(update, 150); });
   update();
 })();

@@ -1674,13 +1674,18 @@
     const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // A brief wash of green or red over the whole screen.
+    // Driven by a transition plus a timer rather than a keyframe animation and "animationend": some phones (battery
+    // saver, "remove animations", older WebViews) never run or finish keyframes, and then the wash never showed.
+    // With reduced motion the colour still appears, just without the fade.
     function flash(ok) {
-      if (reduceMotion()) return;
       const f = document.createElement('div');
-      f.className = 'flash ' + (ok ? 'ok' : 'bad');
+      f.className = 'flash ' + (ok ? 'ok' : 'bad') + (reduceMotion() ? ' still' : '');
       f.setAttribute('aria-hidden', 'true');
-      f.addEventListener('animationend', () => f.remove());
       document.body.appendChild(f);
+      void f.offsetWidth;
+      f.classList.add('on');
+      setTimeout(() => f.classList.remove('on'), reduceMotion() ? 280 : 160);
+      setTimeout(() => f.remove(), reduceMotion() ? 340 : 700);
     }
 
     function nudge() {
@@ -1724,9 +1729,9 @@
         accepted = (d.readings || []).filter((r) => r.accepted_answer).map((r) => r.reading);
       }
       $('#q-feedback').innerHTML = `
+        <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted undo-hint">or Ctrl/Cmd+Z</span></div>
         <div class="verdict ${res.correct ? 'ok' : 'bad'}" role="status"><span class="v-icon">${res.correct ? ICON_OK : ICON_BAD}</span><span>${res.correct ? (res.fuzzy ? 'Correct, counted as a close match' : 'Correct') : 'Incorrect'}</span></div>
         <p class="answers"><span class="muted">Accepted:</span> ${esc(accepted.join(', '))}</p>
-        <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted">or Ctrl/Cmd+Z</span></div>
         <details class="info"${res.correct ? '' : ' open'}><summary>Details</summary><div class="info-body">${renderInfo(item.subject, null)}</div></details>`;
       $('#q-undo').onclick = undo;
       // Touch screens: keep the cursor in the answer box so the keyboard stays open and Enter goes to the next card.

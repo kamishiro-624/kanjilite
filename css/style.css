@@ -254,16 +254,16 @@ p { margin: 0 0 .75rem; }
 .qbadge.ok { background: var(--good-fill); }
 .qbadge.bad { background: var(--bad-fill); }
 .qbadge svg { width: 20px; height: 20px; }
-.flash { position: fixed; inset: 0; pointer-events: none; z-index: 30; animation: flash .55s ease-out forwards; }
-.flash.ok { background: var(--good-fill); --peak: .09; }
-.flash.bad { background: var(--bad-fill); --peak: .22; }
-@keyframes flash { 0% { opacity: 0; } 15% { opacity: var(--peak, .2); } 100% { opacity: 0; } }
+.flash { position: fixed; inset: 0; pointer-events: none; z-index: 30; opacity: 0; will-change: opacity; transition: opacity .16s ease-out; }
+.flash.on { opacity: var(--peak, .2); }
+.flash.still { transition: none; }
+.flash.ok { background: var(--good-fill); --peak: .16; }
+.flash.bad { background: var(--bad-fill); --peak: .3; }
 @keyframes card-pop { 40% { transform: scale(1.02); } }
 @keyframes card-shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-8px); } 40%, 60% { transform: translateX(8px); } }
 @keyframes badge-in { from { transform: scale(0) rotate(-40deg); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .qbox.res-ok, .qbox.res-bad, .qbadge, .answer button.nudge { animation: none; }
-  .flash { display: none; }
 }
 
 /* SRS stage toast: a small pill that drops in at the top of the screen, shown for a moment after each answer. */
@@ -365,7 +365,8 @@ dialog[open] { animation: dlg-in .15s ease-out; }
 #toast.show { opacity: 1; }
 
 /* customization additions */
-.undo-row { display: flex; align-items: center; gap: 12px; margin: 12px 0 10px; font-size: .9rem; }
+.undo-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 10px; font-size: .9rem; }
+@media (pointer: coarse) { .undo-hint { display: none; } }
 .btn.small { padding: 9px 18px; font-size: .9rem; border-radius: 10px; }
 .session-panel { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .banner.info { border-left-color: var(--accent); }
