@@ -217,6 +217,18 @@
     return parts.length ? `<div class="ext-links">${parts.join('')}</div>` : '';
   }
 
+  /** "Next review in 3 days", from an assignment's data. Empty when it has no review coming (not started, locked). */
+  function nextReviewText(d) {
+    if (d.srs_stage >= 9 || d.burned_at) return 'Burned: no more reviews';
+    if (!(d.srs_stage >= 1) || !d.available_at) return '';
+    const ms = Date.parse(d.available_at) - Date.now();
+    if (!(ms > 60000)) return 'Review available now';
+    const mins = Math.round(ms / 60000), hrs = Math.round(ms / 3600000), days = Math.round(ms / 86400000);
+    if (mins < 60) return `Next review in ${mins} minute${mins === 1 ? '' : 's'}`;
+    if (hrs < 24) return `Next review in ${hrs} hour${hrs === 1 ? '' : 's'}`;
+    return `Next review in ${days} day${days === 1 ? '' : 's'}`;
+  }
+
   /** Meanings, readings, mnemonics, sentences and relations for one subject. */
   function renderInfo(s, related, opts) {
     const d = s.data;
@@ -297,7 +309,12 @@
       }
     }
 
-    if (d.document_url) h += `<p class="muted"><a href="${esc(d.document_url)}" target="_blank" rel="noopener">Open on WaniKani</a></p>`;
+    // When this item is next up for review (the WaniKani link lives in the buttons at the top of the details).
+    if (!opts || opts.nextReview !== false) {
+      const a = Local.assignmentFor(s.id);
+      const txt = a && !a.data.hidden ? nextReviewText(a.data) : '';
+      if (txt) h += `<p class="muted next-review">${esc(txt)}</p>`;
+    }
     return h;
   }
 
@@ -1778,7 +1795,7 @@
         <div class="undo-row"><button type="button" class="btn ghost small" id="q-undo">Undo answer</button><span class="muted undo-hint">or Ctrl/Cmd+Z</span></div>
         <div class="verdict ${res.correct ? 'ok' : 'bad'}" role="status"><span class="v-icon">${res.correct ? ICON_OK : ICON_BAD}</span><span>${res.correct ? (res.fuzzy ? 'Correct, counted as a close match' : 'Correct') : 'Incorrect'}</span></div>
         <p class="answers"><span class="muted">Accepted:</span> ${esc(accepted.join(', '))}</p>
-        <details class="info"${res.correct ? '' : ' open'}><summary>Details</summary><div class="info-body">${renderInfo(item.subject, null)}</div></details>`;
+        <details class="info"${res.correct ? '' : ' open'}><summary>Details</summary><div class="info-body">${renderInfo(item.subject, null, { nextReview: false })}</div></details>`;
       $('#q-undo').onclick = undo;
       // Touch screens: keep the cursor in the answer box so the keyboard stays open and Enter goes to the next card.
       // Keyboard users still land on the button, as before.

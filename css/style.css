@@ -76,7 +76,10 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
+/* Popups: scrolling to the end of one must not carry on into the page behind it. */
+dialog { overscroll-behavior: contain; }
+html:has(dialog[open]) { overflow: hidden; }
 body { min-height: 100vh; min-height: 100dvh; }
 button, a, .select-btn, .tile { touch-action: manipulation; }
 body {
