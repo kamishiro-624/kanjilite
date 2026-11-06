@@ -789,6 +789,15 @@ a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--m
 .sp-pill.grand { font-size: 1rem; }
 .sp-pill.zero { opacity: .55; }
 .spread .fine { margin: 6px 0 0; }
+.sp-btn, .sp-row { font: inherit; cursor: pointer; border: 0; }
+.sp-btn { font-size: .9rem; font-weight: 700; }
+.sp-btn:hover, .sp-btn:focus-visible { filter: brightness(1.12); outline: 2px solid var(--accent); outline-offset: 1px; }
+.sp-row { background: none; color: inherit; font-weight: 600; padding: 0; text-align: left; white-space: nowrap; }
+.sp-row:hover, .sp-row:focus-visible { text-decoration: underline; }
+.sp-title { margin: 0 0 10px; font-size: 1.15rem; }
+.sp-stage { margin: 0 0 16px; }
+.sp-stage h3 { margin: 0 0 8px; font-size: .95rem; }
+.sp-back { margin: 0 0 10px; }
 @media (max-width: 520px) {
   .sp-table th, .sp-table td { padding: 6px 1px; }
   .sp-table tbody th, .sp-table tfoot th { padding-left: 8px; font-size: .88rem; }

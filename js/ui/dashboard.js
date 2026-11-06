@@ -144,13 +144,18 @@
 
   /** counts: { apprentice: [radicals, kanji, vocabulary], guru: [...], ... }. A total row closes the table. */
   function spread(counts) {
-    const cell = (cls, n) => `<td><span class="sp-pill ${cls}${n ? '' : ' zero'}">${n.toLocaleString()}</span></td>`;
+    // A pill with items behind it is a button: it opens the grid of those items. `key` is "group:kind" (kind: rad, kan, voc or all).
+    const cell = (cls, n, key) => `<td>${n && key
+      ? `<button type="button" class="sp-pill sp-btn ${cls}" data-sp="${key}" aria-label="Show these ${n} items">${n.toLocaleString()}</button>`
+      : `<span class="sp-pill ${cls}${n ? '' : ' zero'}">${n.toLocaleString()}</span>`}</td>`;
     const sum = [0, 0, 0];
     const rows = SPREAD_ROWS.map((r) => {
       const c = counts[r.key] || [0, 0, 0];
       c.forEach((n, i) => { sum[i] += n; });
-      return `<tr><th scope="row"><span class="sp-dot" style="background:${r.color}" aria-hidden="true"></span>${r.label}</th>
-        ${cell('rad', c[0])}${cell('kan', c[1])}${cell('voc', c[2])}${cell('tot', c[0] + c[1] + c[2])}</tr>`;
+      const tot = c[0] + c[1] + c[2];
+      const lab = `<span class="sp-dot" style="background:${r.color}" aria-hidden="true"></span>${r.label}`;
+      return `<tr><th scope="row">${tot ? `<button type="button" class="sp-row" data-sp="${r.key}:all">${lab}</button>` : lab}</th>
+        ${cell('rad', c[0], r.key + ':rad')}${cell('kan', c[1], r.key + ':kan')}${cell('voc', c[2], r.key + ':voc')}${cell('tot', tot, r.key + ':all')}</tr>`;
     }).join('');
     const grand = sum[0] + sum[1] + sum[2];
     return `<div class="panel spread"><h2>Item spread</h2>
@@ -161,10 +166,10 @@
           <th scope="col"><span class="sp-pill voc">Vocabulary</span></th>
           <th scope="col"><span class="sp-pill tot">Total</span></th></tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr><th scope="row">Total</th>${cell('rad', sum[0])}${cell('kan', sum[1])}${cell('voc', sum[2])}${cell('tot grand', grand)}</tr></tfoot>
+        <tfoot><tr><th scope="row">Total</th>${cell('rad', sum[0], 'all:rad')}${cell('kan', sum[1], 'all:kan')}${cell('voc', sum[2], 'all:voc')}${cell('tot grand', grand, 'all:all')}</tr></tfoot>
       </table></div>
-      <p class="fine muted">Items you have started, by SRS stage. Lessons you have not done yet are not counted.</p></div>`;
+      <p class="fine muted">Items you have started, by SRS stage. Tap a number to see those items. Lessons you have not done yet are not counted.</p></div>`;
   }
 
-  root.Dash = { levelProgress, critical, numbers, practice, spread, spreadGroup, STAGES, SHADES, STAGE_NAMES };
+  root.Dash = { levelProgress, critical, numbers, practice, spread, spreadGroup, SPREAD_ROWS, STAGES, SHADES, STAGE_NAMES };
 })(window);
