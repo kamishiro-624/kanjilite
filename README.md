@@ -33,7 +33,8 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com).
   - **Accuracy-aware**: the review estimate uses your answer accuracy from WaniKani's review statistics (85% until it is known): every wrong answer sends an item back for another review. The Plan screen notes the accuracy it used, and the dashboard and the saved-plan line tell you when your accuracy has moved 3 points or more from what the plan assumed, with the new reviews-a-day figure. It uses the lifetime figure WaniKani keeps, so it moves slowly.
   - **Today's plan on the dashboard** shows lessons done against the daily goal and reviews done against the day's total. The total is worked out once a day (reviews already done plus everything due before midnight) and kept, so the bar only moves forward as you review; reviews that appear later in the day carry it past 100%.
 - **Review notifications** (Settings, Alerts): a browser notification when new reviews become available, with a minimum number of reviews, and the count in the tab title. There is no server, so it works while KanjiLite is open in a tab (a background tab is fine); a closed page can't send notifications. One notification per wave: you are notified again after your due count drops below your threshold. Needs https (GitHub Pages) or localhost.
-- **Settings** in three tabs, each setting in one place: *Study* (session length, question order, wrong-answer lock, review cards and audio, lessons per batch, items per practice), *Alerts* (the workload guard and review notifications) and *General* (theme, sync, backup, account).
+- **Extra practice**: quizzes on items you already know that change nothing on WaniKani. Sets: recently learned, recent mistakes, critical condition, Apprentice items, the current level, burned items and **Different readings**. That last one holds vocabulary whose reading is new or different. Each word is compared with the on'yomi and kun'yomi of the kanji it is written with, and the readings WaniKani teaches in the kanji lessons (the ones its quiz accepts) count as already known. Words that use another reading of a kanji (選ぶ えら, 食べる た, 人 ひと, 三人 さんにん) and words that can't be built from the kanji's readings at all (大人 おとな, 今日 きょう, 明日 あした) are always included. A setting, *Include dakuten-changed readings*, also adds words that only differ by a voiced or half-voiced sound (手紙 てがみ, 一本 いっぽん, 大丈夫 だいじょうぶ). A shortened final sound (学校 がっこう) doesn't count as a change. The first time, the words and their kanji are downloaded and the result is kept on this device.
+- **Settings** in three tabs, each setting in one place: *Study* (session length, question order, wrong-answer lock, review cards and audio, lessons per batch, items per practice, dakuten-changed readings in practice), *Alerts* (the workload guard and review notifications) and *General* (theme, sync, backup, account).
 - **Wrong-answer lock**: after a wrong answer "Next" stays locked briefly (1 second by default, configurable) so an extra Enter press can't skip the correction. Right and wrong answers differ in color, icon, motion and a text banner.
 - **Rate-limit friendly, with no waiting**: WaniKani allows 60 requests per minute, so KanjiLite keeps a local copy of your data instead of asking for it every time a screen opens.
   - Assignments, study materials and subjects are downloaded once and saved in the browser. After that only what changed is fetched (`updated_after`), usually one or two requests when the app opens or the tab regains focus.
@@ -89,11 +90,13 @@ js/
     stats.js          Level history, review statistics, review recording (per-day totals), pace and estimate maths
   logic/
     check.js          Answer checking (meanings with typo tolerance, readings)
+    readings.js       Which vocabulary is read differently from its kanji (regular, new reading, dakuten-changed or completely different)
+    practice.js       Which items each extra-practice set holds, and the mistake log
     pitch.js          Pitch accent: mora splitting, diagram drawing, accent lookup (Kanjium)
     search.js         Matching subjects by meaning, reading or characters; WaniKani and Jisho links
     kana.js           Romaji to hiragana conversion
     plan.js           Level plan maths (pace, workload, schedule, on-track check) and the saved plan
-    guard.js          Workload guard: backlog, Apprentice, skipped days, lesson pace and plan weight against your own limit; the way back
+    guard.js          Workload guard: backlog, a forecast of the reviews already scheduled, skipped days, lesson pace and plan weight against your own limit; what helps
   ui/
     ui.js             CSS-styled select, number stepper, switch and confirm dialog
     charts.js         SVG charts with hover values, drag-to-zoom and editable axes
