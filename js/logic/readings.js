@@ -13,11 +13,14 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 3; // bump when the rules change, so saved results are worked out again
+  const VERSION = 4; // bump when the rules change, so saved results are worked out again
 
   const hira = (s) => String(s || '').replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
   // Marks that are part of how WaniKani writes a word but are never read aloud: the ～ of a prefix or suffix (～放題), ・, spaces.
   const isMark = (c) => /[\p{P}\p{S}\p{Z}]/u.test(c) && c !== '\u30fc'; // ー is a sound, not a mark
+  // Only these can be part of a word's reading: kana (and ー), kanji, 々, and Latin letters or digits. Anything else
+  // (marks, invisible characters, variation selectors) is not read aloud, so it is left out of the comparison.
+  const isReadable = (c) => !isMark(c) && /[\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fc-\u30ff\u3005\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaffA-Za-z0-9\uff10-\uff19\uff21-\uff3a\uff41-\uff5a]/.test(c);
   const isKanji = (c) => /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(c);
 
   // First sound of a reading after a voicing change: か->が, は->ば or ぱ. ち and つ also show up as じ and ず.
@@ -72,7 +75,7 @@
   function classify(vocab, kanjiByChar) {
     const d = vocab && vocab.data;
     if (!d || !d.characters) return 'unknown';
-    const chars = Array.from(d.characters).filter((c) => !isMark(c));
+    const chars = Array.from(d.characters).filter(isReadable);
     if (!chars.some(isKanji) && !chars.includes('々')) return 'none';
     const readings = (d.readings || []).map((r) => hira(r.reading)).filter(Boolean);
     if (!readings.length) return 'unknown';
