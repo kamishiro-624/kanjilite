@@ -28,12 +28,23 @@
     navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.go) location.hash = e.data.go; });
   }
 
+  /* A notification that shares a tag with one already on screen *replaces* it. Without `renotify`, that replacement is
+     silent: on Windows the old one sits in the notification centre (Action Center) and the new one never pops up as a
+     toast until the centre is opened and cleared. So the old notification with the same tag is closed first (the new one
+     is then a brand-new notification) and `renotify` is set as a backstop for browsers where closing is not possible. */
   async function show(title, body, extra) {
     const x = extra || {};
-    const opts = { body, tag: x.tag || 'kl-reviews', data: { url: x.url || '#/reviews' } };
+    const tag = x.tag || 'kl-reviews';
+    const opts = { body, tag, renotify: true, data: { url: x.url || '#/reviews' } };
     try {
       const reg = await register();
-      if (reg && reg.showNotification) { await reg.showNotification(title, opts); return true; }
+      if (reg && reg.showNotification) {
+        try {
+          if (reg.getNotifications) (await reg.getNotifications({ tag })).forEach((n) => n.close());
+        } catch (e) { /* not supported: renotify covers it */ }
+        await reg.showNotification(title, opts);
+        return true;
+      }
     } catch (e) { /* fall through to the plain constructor */ }
     try {
       const n = new Notification(title, opts);
