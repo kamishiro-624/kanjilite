@@ -144,6 +144,20 @@
       return { reviews: due, lessons: Local.lessonsAvailable().length, upcoming, nextReviewsAt: next ? iso(next) : null };
     },
 
+    /** The items that fall due at one of the times in the "Coming up" list (`at` is a bucket's available_at, as in summary()). */
+    reviewsAt(at) {
+      const t = Date.now();
+      const queued = new Set(api.pending().map((r) => r.assignment_id));
+      const out = [];
+      asg.forEach((a) => {
+        const d = a.data;
+        if (d.hidden || !d.started_at || !d.available_at || d.srs_stage < 1 || d.srs_stage > 8 || queued.has(a.id)) return;
+        if (d.available_at !== at || Date.parse(d.available_at) <= t) return;
+        out.push(a);
+      });
+      return out;
+    },
+
     synonyms(ids) {
       const map = new Map();
       ids.forEach((id) => { const m = materials.get(id); if (m && m.synonyms.length) map.set(id, m.synonyms); });

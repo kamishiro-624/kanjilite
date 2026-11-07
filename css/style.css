@@ -172,7 +172,13 @@ p { margin: 0 0 .75rem; }
 .meter i { display: block; height: 100%; background: var(--kan); border-radius: 6px; }
 .meter b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); opacity: .6; }
 .forecast { display: grid; gap: 6px; }
-.forecast div { display: grid; grid-template-columns: 70px 1fr 40px; align-items: center; gap: 10px; font-size: .92rem; }
+.forecast > * { display: grid; grid-template-columns: 70px 1fr 40px; align-items: center; gap: 10px; font-size: .92rem; }
+.fc-row { background: none; border: 0; color: inherit; font: inherit; text-align: left; padding: 3px 6px; margin: 0 -6px; border-radius: 8px; cursor: pointer; width: calc(100% + 12px); }
+.fc-row:hover, .fc-row:focus-visible { background: var(--hover); }
+.up-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 10px; }
+.up-bar .muted { font-size: .85rem; flex: 1; min-width: 180px; }
+.up-view .tile.veil .tm, .up-view .tile.veil .tr { visibility: hidden; }
+.up-view .tile.veil { cursor: pointer; }
 .forecast .bar { height: 10px; background: var(--accent); border-radius: 5px; min-width: 4px; }
 .forecast .n { text-align: right; font-variant-numeric: tabular-nums; }
 

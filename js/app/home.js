@@ -75,7 +75,7 @@
         <div id="dash-critical">${critHtml}</div>
         <div class="panel">
           <h2>Coming up</h2>
-          ${sd.upcoming.length ? `<div class="forecast">${sd.upcoming.map((x) => `<div><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.count / maxUp * 100))}%"></span></span><span class="n">${x.count}</span></div>`).join('')}</div>`
+          ${sd.upcoming.length ? `<div class="forecast">${sd.upcoming.map((x) => `<button type="button" class="fc-row" data-up="${esc(x.available_at)}" aria-label="Show the ${x.count} item${x.count === 1 ? '' : 's'} due at ${esc(hourLabel(x.available_at))}"><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.count / maxUp * 100))}%"></span></span><span class="n">${x.count}</span></button>`).join('')}</div>`
             : `<p class="muted">${sd.nextReviewsAt ? 'Next reviews: ' + esc(new Date(sd.nextReviewsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
         </div>
       </div>`;

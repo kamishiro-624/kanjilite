@@ -4,7 +4,7 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com).
 
 ## Features
 
-- **Dashboard**: available lessons and reviews, a 24-hour review forecast, and level progress split into radicals, kanji and vocabulary, each bar split into one shade per SRS stage, from Burned on the left to Not started on the right (hover or tap a segment for its stage and count; the dark mark on the kanji bar is the 90% needed to level up). Also:
+- **Dashboard**: available lessons and reviews, a 24-hour review forecast (tap a time to list the items due then, with their meanings and readings hidden until you tap an item), and level progress split into radicals, kanji and vocabulary, each bar split into one shade per SRS stage, from Burned on the left to Not started on the right (hover or tap a segment for its stage and count; the dark mark on the kanji bar is the 90% needed to level up). Also:
   - **Critical condition**: the items you answer correctly less than 75% of the time (at least four answers, not burned), worst first. Tap one to open it.
   - **Your numbers**: review streak, time on the current level compared with your average, the date you can expect the next level, reviews today, burned items, answer accuracy and time on WaniKani. The streak counts reviews done in this app.
 - **Workload guard**: burnout is the main reason people quit, and it usually follows a review backlog that built up while lessons kept coming. The dashboard's **Workload check** compares what you are piling up with what you actually manage (your own reviews a day over the last two weeks, plus some room for a heavy day, or a limit you set) and warns you early:
