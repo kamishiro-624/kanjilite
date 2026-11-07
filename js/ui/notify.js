@@ -35,7 +35,8 @@
   async function show(title, body, extra) {
     const x = extra || {};
     const tag = x.tag || 'kl-reviews';
-    const opts = { body, tag, renotify: true, data: { url: x.url || '#/reviews' } };
+    const icon = (f) => new URL(f, document.baseURI).href;   // absolute, so it works from the service worker too (and under a /repo/ path)
+    const opts = { body, tag, renotify: true, icon: icon('icons/icon-192.png'), badge: icon('icons/badge-96.png'), data: { url: x.url || '#/reviews' } };
     try {
       const reg = await register();
       if (reg && reg.showNotification) {
