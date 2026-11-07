@@ -112,7 +112,7 @@
   // ---------------------------------------------------------------- extra practice
 
   /** kinds: [{ key, title, desc, count }] (count null while loading); sizeHTML: the "items per practice" stepper. */
-  function practice(kinds, sizeHTML) {
+  function practice(kinds, sizeHTML, orderHTML) {
     const card = (k) => {
       const none = k.count === 0;
       const n = k.count == null ? '…' : plural(k.count, 'item');
@@ -122,7 +122,8 @@
         : `<a class="pk" href="#/practice/${esc(k.key)}">${inner}</a>`;
     };
     return `<div class="panel practice"><div class="row between"><h2>Extra practice</h2>
-      <label class="pk-size muted">Items per practice ${sizeHTML}</label></div>
+      <div class="pk-opts"><label class="pk-size muted">Order ${orderHTML || ''}</label>
+      <label class="pk-size muted">Items per practice ${sizeHTML}</label></div></div>
       <p class="muted pk-note">Nothing here changes your WaniKani progress. Practise as much as you like.</p>
       <div class="pk-grid">${kinds.map(card).join('')}</div></div>`;
   }

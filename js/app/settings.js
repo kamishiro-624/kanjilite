@@ -14,6 +14,10 @@
     localStorage.setItem('kl_practice_size', String(clampInt(v, 5, 200)));
     window.dispatchEvent(new Event('kl-settings'));
   };
+  const setPracticeOrder = (v) => {
+    localStorage.setItem('kl_practice_order', String(v));
+    window.dispatchEvent(new Event('kl-settings'));
+  };
   const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.floor(Number(v))));
 
   const bindSel = (id, fn) => UI.bindSelect($('#' + id).closest('[data-select]'), fn);
@@ -59,6 +63,8 @@
         <section class="setcard"><h3>Extra practice</h3>
           <div class="field"><label for="s-psize">Items per practice</label>
             ${UI.stepperHTML('s-psize', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' })}</div>
+          <div class="field"><label for="s-porder">Practice order</label>${UI.selectHTML('s-porder', Practice.ORDERS, Practice.orderValue(settings.practiceOrder))}
+            <span class="muted">Sorts the whole set and takes items from the top, so you practise, say, your lowest-accuracy or lowest-level items first. “Set default” keeps a random pick (or newest / worst first for the sets that work that way).</span></div>
           ${UI.switchHTML('s-pdaku', settings.practiceDakuten, 'Include dakuten-changed readings', 'In the Different readings practice, also include words that use a kanji’s reading with a voiced sound, like 手紙 (てがみ, from かみ). Words with completely different readings, like 大人 (おとな), and words with readings the kanji lessons didn’t teach, like 選ぶ (えら), are always included.')}
         </section>
       </div>
@@ -132,6 +138,7 @@
     bindSel('s-delay', (v) => localStorage.setItem('kl_wrong_delay', String(v)));
     UI.bindStepper($('#s-size').closest('[data-stepper]'), setSessionSize);
     UI.bindStepper($('#s-psize').closest('[data-stepper]'), setPracticeSize);
+    bindSel('s-porder', setPracticeOrder);
     $('#s-pdaku').onchange = (e) => { localStorage.setItem('kl_practice_dakuten', e.target.checked ? '1' : '0'); window.dispatchEvent(new Event('kl-settings')); };
     $('#s-b2b').onchange = (e) => localStorage.setItem('kl_b2b', e.target.checked ? '1' : '0');
     $('#s-autoplay').onchange = (e) => { localStorage.setItem('kl_autoplay', e.target.checked ? '1' : '0'); if (!e.target.checked && window.Sound) Sound.stop(); };
@@ -189,5 +196,5 @@
     if (f) f.focus();
   });
 
-  Object.assign(KL, { openSettings, setPracticeSize, setSessionSize });
+  Object.assign(KL, { openSettings, setPracticeOrder, setPracticeSize, setSessionSize });
 })(window.KL);

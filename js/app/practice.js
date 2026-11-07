@@ -39,7 +39,9 @@
       rows: null, levelIds: null, size: settings.practiceSize,
       classes: null, dakuten: settings.practiceDakuten,
     };
-    if (kind === 'critical') {
+    const order = Practice.orderValue(settings.practiceOrder);
+    const need = Practice.orderNeeds(order);
+    if (kind === 'critical' || need === 'accuracy') {
       const rs = await Stats.savedReviewStats().catch(() => null);
       ctx.rows = rs ? rs.rows : null;
       if (!ctx.rows) {
@@ -60,7 +62,18 @@
       if (stale()) return;
       if (!ctx.classes || !Object.keys(ctx.classes).length) return empty('Could not check your words', 'Check your connection and try again.');
     }
-    const picked = Practice.select(kind, ctx).items;
+    let sel = Practice.select(kind, ctx);
+    if (need === 'level' && sel.pool.length) {
+      // Levels live on the subjects, so the whole set's subjects are needed to sort it (mostly saved on this device already).
+      loading('Sorting by level…');
+      const all = await api.getSubjects(sel.pool.map((a) => a.data.subject_id)).catch(() => null);
+      if (stale()) return;
+      if (!all) return empty('Could not sort by level', 'Check your connection and try again.');
+      ctx.levelOf = (id) => { const s = all.get(id); return s && s.data ? s.data.level : null; };
+    }
+    ctx.order = order;
+    sel = Practice.select(kind, ctx);
+    const picked = sel.items;
     if (!picked.length) return empty('Nothing to practise here yet', def.empty);
 
     const ids = picked.map((a) => a.data.subject_id);
@@ -69,7 +82,8 @@
     if (stale()) return;
     const items = picked.filter((a) => subs.has(a.data.subject_id)).map((a) => makeItem(a, subs.get(a.data.subject_id), synonyms.get(a.data.subject_id)));
     if (!items.length) return empty('Nothing to practise here yet', def.empty);
-    shuffle(items);
+    // Without a chosen order the items are mixed up; with one, the quiz draws from the front of the list.
+    if (order === 'default') shuffle(items);
     runPractice(items, def, my);
   }
 

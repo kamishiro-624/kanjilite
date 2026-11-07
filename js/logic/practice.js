@@ -21,6 +21,51 @@
     { key: 'burned', title: 'Burned items', desc: 'Check that the ones you burned have really stuck', empty: 'You have not burned anything yet.' },
   ];
 
+  /** How a session's items are picked and ordered. 'default' keeps each set's own way (a random pick, or newest / worst first).
+      Any other choice sorts the whole set and takes the first items from the top. */
+  const ORDERS = [
+    { value: 'default', label: 'Set default' },
+    { value: 'newest', label: 'Most recently learned first' },
+    { value: 'oldest', label: 'Longest ago learned first' },
+    { value: 'level-asc', label: 'Level: low to high' },
+    { value: 'level-desc', label: 'Level: high to low' },
+    { value: 'acc-asc', label: 'Accuracy: low to high' },
+    { value: 'acc-desc', label: 'Accuracy: high to low' },
+    { value: 'srs-asc', label: 'SRS stage: low to high' },
+    { value: 'srs-desc', label: 'SRS stage: high to low' },
+  ];
+  const orderValue = (v) => (ORDERS.some((o) => o.value === v) ? v : 'default');
+  /** What a sort needs besides the assignments: 'level' (ctx.levelOf) or 'accuracy' (ctx.rows). */
+  const orderNeeds = (v) => (/^level/.test(v) ? 'level' : /^acc/.test(v) ? 'accuracy' : null);
+
+  const startedAt = (a) => Date.parse(a.data.started_at) || 0;
+  /** Percent of answers that were right (meaning and reading together), or null if the item has no statistics yet. */
+  function accuracyOf(rows, subjectId) {
+    const r = rows && rows[subjectId];
+    if (!r) return null;
+    const total = r[1] + r[2] + r[3] + r[4];
+    return total ? (r[1] + r[3]) / total * 100 : null;
+  }
+
+  /** A sorted copy of the pool. Ties go to the more recently learned item. Items with no value to sort by come last. */
+  function sortPool(pool, order, ctx) {
+    const key = {
+      newest: (a) => startedAt(a), oldest: (a) => startedAt(a),
+      'level-asc': (a) => ctx.levelOf(a.data.subject_id), 'level-desc': (a) => ctx.levelOf(a.data.subject_id),
+      'acc-asc': (a) => accuracyOf(ctx.rows, a.data.subject_id), 'acc-desc': (a) => accuracyOf(ctx.rows, a.data.subject_id),
+      'srs-asc': (a) => a.data.srs_stage, 'srs-desc': (a) => a.data.srs_stage,
+    }[order];
+    if (!key) return pool.slice();
+    const dir = /-desc$|^newest$/.test(order) ? -1 : 1;
+    const rows = pool.map((a) => ({ a, k: key(a) }));
+    rows.sort((x, y) => {
+      const xn = x.k == null, yn = y.k == null;
+      if (xn !== yn) return xn ? 1 : -1;
+      return ((xn ? 0 : (x.k - y.k) * dir)) || (startedAt(y.a) - startedAt(x.a));
+    });
+    return rows.map((r) => r.a);
+  }
+
   const shuffled = (a) => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
 
   // ---------------------------------------------------------------- mistake log
@@ -70,8 +115,9 @@
 
   /**
    * ctx: { all: every assignment, assignmentFor(subjectId), mistakes: log, rows: review statistics (or null),
-   *        levelIds: Set of this level's subject ids (or null), size }
-   * Returns { ready, total, items }: ready is false while the data a set needs is still loading, total is how many
+   *        levelIds: Set of this level's subject ids (or null), size,
+   *        order: one of ORDERS (default 'default'), levelOf(subjectId): the item's level (needed by the level orders) }
+   * Returns { ready, total, items, pool }: pool is every item in the set (unsorted), and ready is false while the data a set needs is still loading, total is how many
    * items are in the set, items is what a session holds (at most `size`; the "recent" sets are newest first,
    * the others a random pick).
    */
@@ -117,7 +163,14 @@
       case 'burned': pool = all.filter((a) => a.data.srs_stage === 9); break;
       default: break;
     }
-    return { ready, total: pool.length, items: ordered ? pool.slice(0, size) : shuffled(pool).slice(0, size) };
+    const order = orderValue(ctx.order);
+    if (ready && order !== 'default') {
+      const need = orderNeeds(order);
+      if (need === 'level' && !ctx.levelOf) ready = false;
+      else if (need === 'accuracy' && !ctx.rows) ready = false;
+      else return { ready, total: pool.length, items: sortPool(pool, order, ctx).slice(0, size), pool };
+    }
+    return { ready, total: pool.length, items: ordered ? pool.slice(0, size) : shuffled(pool).slice(0, size), pool };
   }
 
   /** How many items a set holds, or null while it is still loading. */
@@ -126,5 +179,5 @@
     return r.ready ? r.total : null;
   }
 
-  root.Practice = { KINDS, select, count, readLog, noteMistakes, readClasses, saveClasses };
+  root.Practice = { KINDS, ORDERS, orderValue, orderNeeds, select, count, readLog, noteMistakes, readClasses, saveClasses };
 })(window);

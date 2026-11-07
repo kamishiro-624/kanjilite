@@ -3,7 +3,7 @@
 (function (KL) {
   'use strict';
   const S = KL.S;
-  const { $, Keep, Session, app, ensureLocal, esc, flushBg, guardContext, loading, openSettings, setPracticeSize, setSessionSize, settings, signInToSync, syncFailed, tile, toast, userKnown } = KL;
+  const { $, Keep, Session, app, ensureLocal, esc, flushBg, guardContext, loading, openSettings, setPracticeOrder, setPracticeSize, setSessionSize, settings, signInToSync, syncFailed, tile, toast, userKnown } = KL;
 
   // ---------- home ----------
   // Everything on this screen is worked out from the saved copy of your data, so it opens instantly, costs no
@@ -44,7 +44,7 @@
       const sig = JSON.stringify([u.level, sd, pendR, pendS, snap && snap.items.length]);
       if (!force && sig === shown) return;
       // Don't rebuild the screen under someone who is typing in the session-length box.
-      if (!force && app.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+      if (!force && app.contains(document.activeElement) && (document.activeElement.tagName === 'INPUT' || document.activeElement.classList.contains('select-btn'))) return;
       shown = sig;
 
       const maxUp = Math.max(1, ...sd.upcoming.map((x) => x.count));
@@ -115,13 +115,15 @@
         classes: Practice.readClasses(), dakuten: settings.practiceDakuten,
       };
       const kinds = Practice.KINDS.map((k) => ({ key: k.key, title: k.title, desc: k.desc, count: Practice.count(k.key, ctx) }));
-      practiceHtml = Dash.practice(kinds, UI.stepperHTML('p-size', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' }));
+      practiceHtml = Dash.practice(kinds, UI.stepperHTML('p-size', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' }),
+        UI.selectHTML('p-order', Practice.ORDERS, Practice.orderValue(settings.practiceOrder), 'Practice order'));
       const box = $('#dash-practice');
       if (!box) return;
       // Don't rebuild the panel under someone who is typing in its size box.
       if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
       box.innerHTML = practiceHtml;
       UI.bindStepper($('#p-size').closest('[data-stepper]'), (v) => { setPracticeSize(v); toast('Practice length saved.'); });
+      UI.bindSelect($('#p-order').closest('[data-select]'), (v) => { setPracticeOrder(v); toast('Practice order saved.'); });
     }
 
     // Item spread: every started item, by SRS stage and kind, from the saved copy.

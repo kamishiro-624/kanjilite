@@ -758,6 +758,7 @@ dialog { max-height: 90vh; max-height: 90dvh; }
 /* ---- extra practice ---- */
 .practice h2 { margin: 0; }
 .pk-size { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; }
+.pk-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
 .pk-note { margin: 4px 0 10px; font-size: .88rem; }
 .pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
 .pk {
