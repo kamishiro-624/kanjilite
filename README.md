@@ -65,7 +65,24 @@ css/
 js/
   config.js           Optional Firebase details for sync (empty by default)
   sync.js             Optional sync of plan and settings through Google or email sign-in and Firestore
-  app.js              Routing, dashboard, lessons, reviews, level browser, settings
+  app.js              Entry point: starts the app once the files in app/ have loaded
+  app/                The app itself, one file per area. Loaded in this order (see index.html); they share
+                      what they need through window.KL
+    core.js           Helpers, settings, the saved review session, toasts, navigation, shared state (KL.S)
+    workload.js       Workload guard: gathers the numbers for logic/guard.js, gates lessons
+    subject.js        Tiles, the item detail body, your own synonyms and notes
+    modal.js          The detail popup and the item-spread grid
+    keep.js           Browser-storage guard and backup
+    syncui.js         Sync sign-in forms, the nav button, refresh when idle
+    settings.js       The settings dialog
+    router.js         Routing and the signed-in user
+    login.js          Login view
+    home.js           Dashboard view
+    views.js          Search, stats, plan and level-browser views
+    quiz.js           Quiz engine shared by reviews and lessons
+    reviews.js        Reviews view and summary
+    practice.js       Extra practice
+    lessons.js        Lessons view
   data/
     api.js            WaniKani API wrapper: request pacing, 429 handling, pagination, IndexedDB access, upload queues
     store.js          Local copy of your data: first download, incremental sync, and the queries that replace API calls
