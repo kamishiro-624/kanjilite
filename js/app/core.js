@@ -36,6 +36,7 @@
     get autoplay() { return localStorage.getItem('kl_autoplay') === '1'; }, // off unless switched on
     get wrongDelay() { return getNum('kl_wrong_delay', 1000); }, // ms "Next" stays locked after a wrong answer
     get practiceSize() { return Math.max(5, Math.min(200, getNum('kl_practice_size', 20))); }, // items in one extra-practice session
+    get practiceDakuten() { return localStorage.getItem('kl_practice_dakuten') === '1'; }, // "Different readings" also holds dakuten-changed words
     get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark
   };
   function applyTheme() {

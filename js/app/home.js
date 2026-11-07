@@ -112,6 +112,7 @@
       const ctx = {
         all: Local.allAssignments(), assignmentFor: Local.assignmentFor, mistakes: Practice.readLog(user.id),
         rows: X.rs ? X.rs.rows : null, levelIds: X.levelIds, size: settings.practiceSize,
+        classes: Practice.readClasses(), dakuten: settings.practiceDakuten,
       };
       const kinds = Practice.KINDS.map((k) => ({ key: k.key, title: k.title, desc: k.desc, count: Practice.count(k.key, ctx) }));
       practiceHtml = Dash.practice(kinds, UI.stepperHTML('p-size', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' }));

@@ -5,6 +5,26 @@
   const S = KL.S;
   const { $, app, empty, ensureLocal, esc, go, loading, makeItem, route, runQuiz, settings, shuffle, tile } = KL;
 
+  // ---------- reading classes ----------
+  // Works out (and keeps on this device) which started vocabulary words are read differently from their kanji.
+  // Needs the words and their kanji, which are downloaded once; later calls only handle words not seen before.
+  async function ensureReadingClasses(assignments, stale) {
+    const known = Practice.readClasses();
+    const vocab = assignments.filter((a) => a.data.subject_type === 'vocabulary' && !known[a.data.subject_id]);
+    if (!vocab.length) return known;
+    const words = await api.getSubjects(vocab.map((a) => a.data.subject_id));
+    if (stale && stale()) return known;
+    const kanjiIds = new Set();
+    words.forEach((w) => ((w.data && w.data.component_subject_ids) || []).forEach((id) => kanjiIds.add(id)));
+    const kanji = await api.getSubjects([...kanjiIds]);
+    if (stale && stale()) return known;
+    const byChar = {};
+    kanji.forEach((k) => { if (k.object === 'kanji' && k.data.characters) byChar[k.data.characters] = k; });
+    const found = {};
+    words.forEach((w, id) => { found[id] = Readings.classify(w, byChar); });
+    return Practice.saveClasses(found);
+  }
+
   // ---------- extra practice ----------
   // Quizzes on items you already know. Same screen as a review, but nothing is sent to WaniKani and no SRS stage moves.
   async function practiceView(my, kind) {
@@ -17,6 +37,7 @@
     const ctx = {
       all: Local.allAssignments(), assignmentFor: Local.assignmentFor, mistakes: Practice.readLog(user.id),
       rows: null, levelIds: null, size: settings.practiceSize,
+      classes: null, dakuten: settings.practiceDakuten,
     };
     if (kind === 'critical') {
       const rs = await Stats.savedReviewStats().catch(() => null);
@@ -32,6 +53,12 @@
       if (stale()) return;
       if (!subs) return empty('Could not load this level', 'Check your connection and try again.');
       ctx.levelIds = new Set(subs.filter((x) => !x.data.hidden_at).map((x) => x.id));
+    }
+    if (kind === 'readings') {
+      loading('Checking the readings of your words… the first time this downloads them, so it can take a moment.');
+      try { ctx.classes = await ensureReadingClasses(Local.allAssignments().filter((a) => !a.data.hidden && a.data.started_at && a.data.srs_stage >= 1), stale); } catch (e) { ctx.classes = null; }
+      if (stale()) return;
+      if (!ctx.classes || !Object.keys(ctx.classes).length) return empty('Could not check your words', 'Check your connection and try again.');
     }
     const picked = Practice.select(kind, ctx).items;
     if (!picked.length) return empty('Nothing to practise here yet', def.empty);
