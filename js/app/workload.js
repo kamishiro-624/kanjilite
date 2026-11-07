@@ -15,17 +15,20 @@
     const week = now - 7 * 86400000;
     const today = Stats.dayKey(new Date(now));
     let apprentice = 0, lessons7 = 0, lessonsToday = 0;
+    const items = []; // everything still to review, for the forecast of the days ahead (not just Apprentice)
+    const queued = new Set(api.pending().map((r) => r.assignment_id));
     Local.allAssignments().forEach((a) => {
       const d = a.data;
       if (d.hidden) return;
       if (d.srs_stage >= 1 && d.srs_stage <= 4) apprentice++;
+      if (d.started_at && d.available_at && d.srs_stage >= 1 && d.srs_stage <= 8 && !queued.has(a.id)) items.push({ stage: d.srs_stage, at: Date.parse(d.available_at) });
       if (d.started_at) {
         const t = Date.parse(d.started_at);
         if (t >= week) { lessons7++; if (Stats.dayKey(new Date(t)) === today) lessonsToday++; }
       }
     });
     return {
-      now, due, next24: Math.max(0, Local.reviewsDueBy(now + 86400000) - due), apprentice, lessons7, lessonsToday,
+      now, due, next24: Math.max(0, Local.reviewsDueBy(now + 86400000) - due), apprentice, items, lessons7, lessonsToday,
       counts: Stats.dayCounts(hist), acc: rs ? Stats.accuracyOf(rs.rows) : null,
       plan: Plan.load(userId), pos: frac != null ? level + frac : null,
     };
@@ -50,8 +53,8 @@
     const a = res.allowance, m = res.m;
     if (a.paused) {
       const ok = await UI.confirm({
-        title: 'Your reviews are piled up',
-        message: `${m.due.toLocaleString()} reviews are due${m.appSev ? ` and ${m.apprentice} items are still in Apprentice` : ''}. New lessons now add to the pile, and the pile is what makes people quit. Clear some reviews first; the lessons will still be here.`,
+        title: m.backlog ? 'Your reviews are piled up' : 'The coming days are already heavy',
+        message: `${m.backlog ? `${m.due.toLocaleString()} reviews are due` : `About ${Math.round(m.weekAvg).toLocaleString()} reviews a day are already scheduled for the coming week`}${m.backlog && m.loadSev ? `, and the coming week is heavy too` : ''}. New lessons now add to the pile, and the pile is what makes people quit. ${m.due ? 'Work through what is due first' : 'Holding off for a few days lets it ease'}; the lessons will still be here.`,
         ok: 'Start lessons anyway', cancel: 'Reviews first',
       });
       if (!ok) go(m.due ? '#/reviews' : '#/');
@@ -60,7 +63,7 @@
     if (another && a.allowed && a.done >= a.allowed) {
       const ok = await UI.confirm({
         title: 'That’s today’s safe amount',
-        message: `You have started ${a.done} lessons today, which is ${a.hasPlan ? 'what your plan asks for' : 'about what you can sustain'} (${a.allowed}). More now means more reviews over the next few days. It is fine to stop here and carry on tomorrow.`,
+        message: `You have started ${a.done} lessons today. ${a.eased ? 'With the reviews already scheduled for the coming days, that is about as many as fit comfortably.' : a.hasPlan ? 'That meets your plan’s daily goal.' : 'That is about what you can sustain.'} More now means more reviews over the next few days. It is fine to stop here and carry on tomorrow.`,
         ok: 'Do another batch', cancel: 'Stop for today',
       });
       if (!ok) go('#/');

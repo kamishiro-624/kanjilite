@@ -1,7 +1,7 @@
 /* Workload guard: notices when someone is setting themselves up for a review backlog, and says what to do about it.
    Pure maths and wording, no DOM and no network. The app gathers the numbers (see guardContext in app.js) and hands them in.
 
-   Backlogs are the usual way people burn out: a few ambitious days of lessons, then a week of reviews nobody has the
+   The workload is worked out from the real schedule: every item you have started is followed through its remaining\n   reviews (4 hours, 8 hours, a day, two days, a week...), so reviews coming back from Guru and Master count as well as\n   Apprentice ones. Reviews only unlock when they are due, so nothing here asks for a number of reviews to be done: it\n   says what is coming, what can wait, and how many lessons still fit.\n\n   Backlogs are the usual way people burn out: a few ambitious days of lessons, then a week of reviews nobody has the
    energy for, then the pile is too big to face. So the guard watches both the pile that exists now (reviews due,
    Apprentice items, days skipped) and the one being built (the lesson pace, the saved plan), and measures all of them
    against what the person actually manages: their own recent reviews a day, unless they set a limit themselves.
@@ -46,6 +46,41 @@
     return { value: DEFAULT_CAP, auto: true, known: false };
   }
 
+  // Hours an item waits after being answered correctly into each stage (WaniKani's standard intervals).
+  const WAIT_H = { 1: 4, 2: 8, 3: 23, 4: 47, 5: 167, 6: 335, 7: 719, 8: 2879 };
+  const HOUR = 3600 * 1000;
+
+  /**
+   * The reviews already on the calendar, followed forward: each item is reviewed when it falls due (or now, if it is
+   * overdue), is assumed to be answered correctly, and then waits for its next stage's interval, and so on. Mistakes add
+   * repeats, so the counts are scaled by the usual retry factor for this accuracy.
+   * items: [{ stage (1..8), at (ms, when it falls due) }]. Returns { raw, days, avg, peak, peakDay } for the next `n`
+   * days counted from `now` in 24-hour steps (day 0 includes everything already due).
+   */
+  function forecast(items, now, n, acc) {
+    const rf = 1 + (1 - Math.min(1, Math.max(0.5, acc == null ? 0.85 : acc)));
+    const raw = new Array(n).fill(0);
+    (items || []).forEach((it) => {
+      let s = it.stage, t = Math.max(it.at, now);
+      if (!(s >= 1 && s <= 8) || !Number.isFinite(t)) return;
+      for (;;) {
+        const b = Math.floor((t - now) / DAY);
+        if (b >= n) break;
+        raw[b] += rf;
+        s += 1;
+        if (s >= 9) break;
+        t += WAIT_H[s] * HOUR;
+      }
+    });
+    const days = raw.map((x) => Math.round(x));
+    let peak = 0, peakDay = 0;
+    days.forEach((x, i) => { if (x > peak) { peak = x; peakDay = i; } });
+    return { raw, days, avg: days.reduce((a, b) => a + b, 0) / n, peak, peakDay };
+  }
+
+  /** Extra reviews, per day for the next week, that one lesson started now brings (4 hours, 12 hours, 35 hours, ...). */
+  const lessonProfile = (now, acc) => forecast([{ stage: 1, at: now + 4 * HOUR }], now, 7, acc).raw;
+
   /** Lessons a day that keep the reviews they create (averaged over two months) within `cap` a day, at this accuracy. */
   const safeLessons = (cap, acc) => Math.max(1, Math.floor(cap / Plan.reviewsPerDay(1, 60, acc)));
 
@@ -56,10 +91,11 @@
   }
 
   /**
-   * c: { now, due, next24 (reviews falling due in the next 24 hours), apprentice (items at Apprentice), counts (reviews per day),
+   * c: { now, due, next24 (reviews falling due in the next 24 hours), apprentice (items at Apprentice), items (every started
+   *      item still to review, [{ stage, at }], for the forecast), counts (reviews per day),
    *      lessons7 (lessons started in the last 7 days), lessonsToday, acc (0..1 or null), plan (saved plan or null),
    *      pos (level plus how far through it, or null), prefs }
-   * Returns { sev: 0|1|2, level, cap, warnings (worst first), recovery, allowance, m (the numbers behind it) }.
+   * Returns { sev: 0|1|2, level, cap, warnings (worst first), recovery, allowance, forecast, m (the numbers behind it) }.
    */
   function evaluate(c) {
     const p = c.prefs || prefs();
@@ -84,24 +120,33 @@
         short: `${n0(due)} reviews are due. Clear some before starting new lessons.`,
         action: { label: 'Start reviews', href: '#/reviews' },
       });
-    } else if (due + next24 >= Math.max(1.5 * C, 120)) {
+    }
+    const fc = forecast(c.items, now, 7, acc);
+    const day0 = Math.max(fc.days[0], due), day1 = fc.days[1];
+    if (!backlog && Math.max(day0, day1) >= Math.max(1.5 * C, 120)) {
       add({
         id: 'ahead', sev: 1,
         title: 'A heavy day is coming',
-        text: `${n0(due)} reviews are due now and ${n0(next24)} more fall due in the next 24 hours. Doing some now spreads it out; adding lessons today would make tomorrow heavier still.`,
-        short: `${n0(due + next24)} reviews over the next 24 hours. Go easy on new lessons today.`,
-        action: { label: 'Start reviews', href: '#/reviews' },
+        text: `About ${n0(day0)} reviews come up over the next 24 hours (${n0(due)} already due)${day1 >= C ? `, then about ${n0(day1)} the day after` : ''}. That includes the repeats of items you answer today. Reviews unlock on their own schedule, so just do what is ready, in short sessions, and skip new lessons today.`,
+        short: `About ${n0(Math.max(day0, day1))} reviews over the next day or two. Go easy on new lessons.`,
+        action: due ? { label: 'Start reviews', href: '#/reviews' } : null,
       });
     }
 
-    const aw = Math.min(100, Math.max(50, Math.round(C * 0.7 / 5) * 5)), ah = Math.round(aw * 1.5);
-    const appSev = app >= ah ? 2 : app >= aw ? 1 : 0;
-    if (appSev) {
+    // The days after today, from everything that is already scheduled (Apprentice, Guru, Master... all of it). Today is left
+    // out here because a backlog is judged above and would otherwise be counted twice.
+    const rest = fc.days.slice(1);
+    const restAvg = rest.reduce((x, y) => x + y, 0) / rest.length;
+    let restPeak = 0, restPeakDay = 1;
+    rest.forEach((x, i) => { if (x > restPeak) { restPeak = x; restPeakDay = i + 1; } });
+    const loadSev = restAvg >= 40 && restAvg >= 1.4 * C ? 2 : restAvg >= 40 && restAvg >= C ? 1 : 0;
+    const when = (d) => (d === 1 ? 'tomorrow' : `in ${d} days`);
+    if (loadSev) {
       add({
-        id: 'apprentice', sev: appSev,
-        title: `${n0(app)} items in Apprentice`,
-        text: `New items come back for review after 4 hours, 8 hours, a day and two days, so a full Apprentice stage means a lot of reviews very soon. Let some move up to Guru before adding more (more than about ${aw} is where it starts to hurt).`,
-        short: `${n0(app)} items are still in Apprentice. Let some move up before more lessons.`,
+        id: 'load', sev: loadSev,
+        title: loadSev === 2 ? 'The coming week is already very heavy' : 'The coming week is already heavy',
+        text: `The reviews already scheduled come to about ${n0(restAvg)} a day over the next week, up to ${n0(restPeak)} ${when(restPeakDay)}, against the ${n0(C)} you usually manage. That is before any new lessons${app ? ` (${n0(app)} items are in Apprentice and come back several more times in the next days)` : ''}. Reviews cannot be done early, so the way to lighten it is to hold off on new lessons until it eases.`,
+        short: `About ${n0(restAvg)} reviews a day are already scheduled for the next week. Hold off on new lessons.`,
         action: due ? { label: 'Start reviews', href: '#/reviews' } : null,
       });
     }
@@ -151,19 +196,33 @@
     const sev = W.reduce((m, w) => Math.max(m, w.sev), 0);
 
     // ---- lessons today ----
-    const lessonSev = Math.max(backlog, appSev);
+    // How many more lessons fit: each one brings reviews over the next days (about 2 today, 1 tomorrow, then a few
+    // more), added to what is already scheduled, so room is however many it takes to reach your usual daily amount.
+    // Lessons you have already started are in the schedule, so doing them uses room but never moves the total.
+    const lessonSev = Math.max(backlog, loadSev);
+    const paused = lessonSev >= 2;
     const goal = c.plan && c.plan.lpd ? Math.max(1, Math.round(c.plan.lpd)) : safe;
-    const allowed = lessonSev >= 2 ? 0 : lessonSev === 1 ? Math.max(1, Math.floor(goal / 2)) : goal;
+    const prof = lessonProfile(now, acc);
+    let room = Infinity;
+    prof.forEach((x, d) => { if (x > 0.05) room = Math.min(room, Math.floor((C - Math.max(fc.raw[d], d === 0 ? due : 0)) / x)); });
+    room = Number.isFinite(room) ? Math.max(0, room) : 99;
     const done = c.lessonsToday || 0;
-    const allowance = { goal, allowed, done, left: Math.max(0, allowed - done), paused: lessonSev >= 2, eased: lessonSev === 1, safe, hasPlan: !!(c.plan && c.plan.lpd) };
+    // Never below what is already done (saying "9 today" after 18 is nonsense).
+    const allowed = paused ? 0 : Math.max(done, Math.min(goal, done + room));
+    const allowance = { goal, allowed, done, left: Math.max(0, allowed - done), paused, eased: !paused && allowed < goal, room, safe, hasPlan: !!(c.plan && c.plan.lpd) };
 
     // ---- the way back ----
+    // No quota is set: reviews can only be done once they are due. This says what is ready, what is coming and roughly
+    // how long the pile takes at your usual pace.
     let recovery = null;
-    if (backlog || (since != null && since >= 2 && due >= 30) || appSev) {
-      const daily = Math.max(Math.round(C * 1.2 / 5) * 5, next24 + 20);
-      const net = Math.max(10, daily - next24);
-      const days = Math.max(1, Math.ceil(due / net));
-      const delay = lessonSev >= 2 ? days : lessonSev === 1 ? days / 2 : 0;
+    const skipped = since != null && since >= 2 && due >= 30;
+    if (backlog || skipped || loadSev) {
+      const pace = Math.max(Math.round(C * 1.2 / 5) * 5, next24 + 20);
+      const net = Math.max(10, pace - next24);
+      let days;
+      if (backlog || skipped) days = Math.max(1, Math.ceil(due / net));
+      else { const i = rest.findIndex((x) => x < 0.9 * C); days = i < 0 ? 7 : i + 1; }
+      const delay = paused ? days : allowance.eased ? days / 2 : 0;
       let planText = '';
       if (c.plan && c.pos != null && delay > 0) {
         const left = (c.plan.end - now) / DAY;
@@ -179,14 +238,16 @@
         }
       }
       recovery = {
-        daily, days, lessonsPaused: lessonSev >= 2, lessonsEased: lessonSev === 1, planText,
+        due, soon: Math.max(0, day0 - due), days, pace, pile: !!(backlog || skipped),
+        peak: { n: restPeak, day: restPeakDay, label: when(restPeakDay) },
+        lessonsPaused: paused, lessonsEased: allowance.eased, planText,
         sessionTip: due >= 120 ? 50 : 0,
       };
     }
 
     return {
-      sev, level: sev === 2 ? 'high' : sev === 1 ? 'watch' : 'ok', cap, warnings: W, recovery, allowance,
-      m: { due, next24, apprentice: app, lpd7, proj, safe, since, backlog, appSev, lessonSev },
+      sev, level: sev === 2 ? 'high' : sev === 1 ? 'watch' : 'ok', cap, warnings: W, recovery, allowance, forecast: fc,
+      m: { due, next24, apprentice: app, lpd7, proj, safe, since, backlog, loadSev, appSev: loadSev, weekAvg: restAvg, lessonSev },
     };
   }
 
@@ -234,9 +295,11 @@
     const a = res.allowance;
     const reviews = Math.round(started * 4 * (1 + (1 - Math.min(1, Math.max(0.5, Plan.DEFAULT_ACC)))));
     let line = `${plural(started, 'lesson')} started, which means about ${n0(reviews)} more reviews over the next four days.`;
-    if (a.paused) line += ' Your reviews are piled up, so this is a good place to stop for today.';
-    else if (a.allowed && a.done >= a.allowed) line += ` That is today’s safe amount (${a.allowed}). The rest can wait until tomorrow.`;
-    else if (a.allowed) line += ` Today’s safe amount is ${a.allowed}; you are at ${a.done}.`;
+    if (a.paused) line += ' Your reviews are heavy right now, so this is a good place to stop for today.';
+    else if (a.done >= a.allowed) line += a.eased
+      ? ' With the reviews already scheduled for the coming days, that is about as much as fits today. The rest can wait until tomorrow.'
+      : ` That meets today’s lesson goal (${a.goal}). The rest can wait until tomorrow.`;
+    else line += ` About ${a.left} more would still fit today.`;
     return line;
   }
 
@@ -248,5 +311,5 @@
     return null;
   }
 
-  root.Guard = { prefs, capacity, safeLessons, daysSinceReview, evaluate, visible, snooze, snoozed, toAnnounce, toPush, afterLessons, afterReviews, KEYS: K, DEFAULT_CAP };
+  root.Guard = { prefs, capacity, forecast, safeLessons, daysSinceReview, evaluate, visible, snooze, snoozed, toAnnounce, toPush, afterLessons, afterReviews, KEYS: K, DEFAULT_CAP };
 })(typeof window !== 'undefined' ? window : globalThis);

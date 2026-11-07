@@ -48,10 +48,10 @@
     let lessons;
     if (planGoal && g && g.paused) {
       lessons = `<div class="today-col"><div class="today-head"><b>Lessons</b><span>Paused for now</span></div>${bar(0, 1)}
-          <small class="today-note">Your reviews are piled up, so lessons wait (the plan’s ${planGoal} a day resumes once they are under control). ${esc(g.note || '')}</small></div>`;
+          <small class="today-note">Your reviews are heavy right now, so lessons wait (the plan’s ${planGoal} a day resumes once they ease). ${esc(g.note || '')}</small></div>`;
     } else if (planGoal) {
-      const eased = g && g.eased ? ` Eased from the plan’s ${planGoal} while your reviews catch up.` : '';
-      lessons = `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${d.lessonsDone} of ${goal} today</span></div>${bar(d.lessonsDone, goal)}
+      const eased = g && g.eased ? ` Held to ${goal} because of the reviews already scheduled for the coming days (the plan asks for ${planGoal}).` : '';
+      lessons = `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${left ? `${d.lessonsDone} of ${goal} today` : `${d.lessonsDone} today`}</span></div>${bar(d.lessonsDone, goal)}
           <small>${left ? `${num(left)} to go for today’s plan.` : 'Today’s lessons are done.'}${eased} ${queue}</small></div>`;
     } else {
       lessons = `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${d.lessonsDone} done today</span></div>
