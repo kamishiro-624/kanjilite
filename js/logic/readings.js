@@ -13,9 +13,11 @@
 (function (root) {
   'use strict';
 
-  const VERSION = 2; // bump when the rules change, so saved results are worked out again
+  const VERSION = 3; // bump when the rules change, so saved results are worked out again
 
   const hira = (s) => String(s || '').replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  // Marks that are part of how WaniKani writes a word but are never read aloud: the ～ of a prefix or suffix (～放題), ・, spaces.
+  const isMark = (c) => /[\p{P}\p{S}\p{Z}]/u.test(c) && c !== '\u30fc'; // ー is a sound, not a mark
   const isKanji = (c) => /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(c);
 
   // First sound of a reading after a voicing change: か->が, は->ば or ぱ. ち and つ also show up as じ and ず.
@@ -70,7 +72,7 @@
   function classify(vocab, kanjiByChar) {
     const d = vocab && vocab.data;
     if (!d || !d.characters) return 'unknown';
-    const chars = Array.from(d.characters);
+    const chars = Array.from(d.characters).filter((c) => !isMark(c));
     if (!chars.some(isKanji) && !chars.includes('々')) return 'none';
     const readings = (d.readings || []).map((r) => hira(r.reading)).filter(Boolean);
     if (!readings.length) return 'unknown';
