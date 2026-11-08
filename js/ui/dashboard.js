@@ -37,8 +37,20 @@
     return Math.min(9, a.data.srs_stage);
   }
 
-  /** subs: every subject of the level; assignmentFor(subjectId) gives its assignment or null. */
-  function levelProgress(level, subs, assignmentFor) {
+  /** The title row: an arrow on each side to step back through earlier levels (and forward again, up to the current one). */
+  function lpHead(level, current) {
+    const arrow = (dir, to, off, glyph) => `<button type="button" class="lp-nav" data-lp-to="${to}" aria-label="Show the progress of level ${to}"${off ? ' disabled' : ''}>${glyph}</button>`;
+    const prev = level > 1, next = level < current;
+    return `<div class="lp-title">${arrow(-1, level - 1, !prev, '&#8249;')}<h2>Level ${level} progress${level < current ? ' <span class="lp-past">(earlier level)</span>' : ''}</h2>${arrow(1, level + 1, !next, '&#8250;')}</div>`;
+  }
+
+  /**
+   * subs: every subject of the level shown (null while it loads); assignmentFor(subjectId) gives its assignment or null.
+   * current: the level the user is on now. The arrows in the title browse levels 1 to current.
+   */
+  function levelProgress(level, subs, assignmentFor, current) {
+    current = current || level;
+    if (!subs) return `<div class="panel lp">${lpHead(level, current)}<p class="muted lp-note">Loading level ${level}…</p></div>`;
     const rows = KINDS.map((k) => {
       const list = subs.filter((s) => !s.data.hidden_at && (k.key === 'vocabulary' ? (s.object === 'vocabulary' || s.object === 'kana_vocabulary') : s.object === k.key));
       const counts = new Array(10).fill(0);
@@ -47,9 +59,9 @@
       for (let n = 5; n <= 9; n++) atGuru += counts[n];
       return { kind: k, total: list.length, counts, atGuru };
     }).filter((r) => r.total);
-    if (!rows.length) return '';
+    if (!rows.length) return level === current ? '' : `<div class="panel lp">${lpHead(level, current)}<p class="muted lp-note">Nothing to show for this level.</p></div>`;
 
-    // Hovering (or focusing) a segment shows its stage in a small popup, drawn with CSS from data-tip.
+    // Hovering (or focusing) a segment shows its stage in a small popup (one shared element, placed by the page script).
     const bar = (r) => {
       const segs = STAGES.filter((st) => r.counts[st.stage]).map((st) => {
         const n = r.counts[st.stage];
@@ -60,11 +72,13 @@
     };
     const kanji = rows.find((r) => r.kind.key === 'kanji');
     const need = kanji ? Math.ceil(kanji.total * 0.9) : 0;
-    return `<div class="panel lp"><h2>Level ${level} progress</h2>
+    const was = level < current ? 'It took' : 'You need';
+    return `<div class="panel lp">${lpHead(level, current)}
       ${rows.map((r) => `<div class="lp-row">
         <div class="lp-head"><span class="lp-type ${r.kind.cls}"><i></i>${esc(r.kind.label)}</span><span class="lp-count">${r.atGuru} of ${r.total} at Guru or above</span></div>
         ${bar(r)}</div>`).join('')}
-      ${kanji ? `<p class="muted lp-note">You need ${need} kanji at Guru or above to level up: that is everything left of the dark mark. Hover over a segment to see its stage.</p>` : '<p class="muted lp-note">Hover over a segment to see its stage.</p>'}</div>`;
+      ${kanji ? `<p class="muted lp-note">${level < current ? `Levelling up from here needed ${need} kanji at Guru or above: everything left of the dark mark.` : `You need ${need} kanji at Guru or above to level up: that is everything left of the dark mark.`} Hover over a segment to see its stage.</p>` : '<p class="muted lp-note">Hover over a segment to see its stage.</p>'}
+      <div class="lp-tip" aria-hidden="true"></div></div>`;
   }
 
   // ---------------------------------------------------------------- critical condition

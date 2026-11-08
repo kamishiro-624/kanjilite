@@ -32,7 +32,7 @@
     let spreadHtml = '';
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
-    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null, loaded: false };
+    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null, loaded: false, lpLevel: null };
 
     function draw(force) {
       if (stale()) return;
@@ -82,6 +82,7 @@
 
       bindPlan();
       bindGuard();
+      bindProgress();
       paintPractice();
       paintSpread();
       UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
@@ -170,23 +171,74 @@
     }
 
     // Level progress, split into radicals, kanji and vocabulary and coloured by SRS stage.
-    // 90% of the level's kanji at Guru or above unlocks the next level.
+    // 90% of the level's kanji at Guru or above unlocks the next level. The arrows in its title browse earlier levels.
+    let lpSeq = 0;
     async function drawProgress() {
+      const seq = ++lpSeq;
+      const cur = (S.userCache ? S.userCache.u : user).level;
+      if (X.lpLevel != null && (X.lpLevel >= cur || X.lpLevel < 1)) X.lpLevel = null;
+      const shown = X.lpLevel == null ? cur : X.lpLevel;
       try {
-        const lvl = (S.userCache ? S.userCache.u : user).level;
-        const subs = await Local.levelSubjects(lvl, { background: true });
-        if (stale()) return;
-        progressHtml = Dash.levelProgress(lvl, subs, Local.assignmentFor);
+        const subs = await Local.levelSubjects(cur, { background: true });
+        if (stale() || seq !== lpSeq) return;
+        // Everything below the progress panel (plan, practice, estimates) is about the level you are on, whatever the panel shows.
         X.levelIds = new Set(subs.filter((x) => !x.data.hidden_at).map((x) => x.id));
         const kanji = subs.filter((x) => x.object === 'kanji' && !x.data.hidden_at);
         const need = Math.ceil(kanji.length * 0.9);
         const done = kanji.filter((x) => { const a = Local.assignmentFor(x.id); return a && a.data.srs_stage >= 5; }).length;
         X.progress = need ? { fraction: Math.min(1, done / need) } : null;
         S.lastFrac = X.progress ? X.progress.fraction : null;
-        const box = $('#lvl-progress');
-        if (box) box.innerHTML = progressHtml;
+        let panelSubs = subs;
+        if (shown !== cur) {
+          paintProgress(Dash.levelProgress(shown, null, Local.assignmentFor, cur)); // the arrows work while it loads
+          panelSubs = await Local.levelSubjects(shown, { background: true });
+          if (stale() || seq !== lpSeq) return;
+        }
+        progressHtml = Dash.levelProgress(shown, panelSubs, Local.assignmentFor, cur);
+        paintProgress(progressHtml);
       } catch (e) { /* progress is a nice-to-have */ }
-      paintExtras();
+      if (seq === lpSeq) paintExtras();
+    }
+    function paintProgress(html) {
+      const box = $('#lvl-progress');
+      if (box) { box.innerHTML = html; bindProgress(); }
+    }
+    function bindProgress() {
+      const box = $('#lvl-progress');
+      if (!box) return;
+      box.querySelectorAll('[data-lp-to]').forEach((b) => {
+        b.onclick = () => {
+          const cur = (S.userCache ? S.userCache.u : user).level;
+          const to = Number(b.dataset.lpTo);
+          X.lpLevel = to >= cur ? null : Math.max(1, to);
+          drawProgress();
+          const again = box.querySelector(`[data-lp-to="${to}"]`) || box.querySelector('.lp-nav:not([disabled])');
+          if (again) again.focus();
+        };
+      });
+      // One popup shared by all the segments, placed so its arrow always points at the segment (or the pointer on a long one)
+      // and the bubble itself never leaves the card.
+      const panel = box.querySelector('.lp');
+      const tip = box.querySelector('.lp-tip');
+      if (!panel || !tip) return;
+      const hide = () => tip.classList.remove('on');
+      const show = (seg, clientX) => {
+        tip.textContent = seg.dataset.tip;
+        tip.classList.add('on');
+        const pr = panel.getBoundingClientRect(), sr = seg.getBoundingClientRect();
+        const ax = (clientX == null ? sr.left + sr.width / 2 : Math.min(sr.right - 2, Math.max(sr.left + 2, clientX))) - pr.left;
+        const w = tip.offsetWidth, h = tip.offsetHeight;
+        const left = Math.max(6, Math.min(pr.width - w - 6, ax - w / 2));
+        tip.style.left = left + 'px';
+        tip.style.top = (sr.top - pr.top - h - 9) + 'px';
+        tip.style.setProperty('--ax', Math.max(10, Math.min(w - 10, ax - left)) + 'px');
+      };
+      panel.querySelectorAll('.lp-bar i[data-tip]').forEach((seg) => {
+        seg.onpointerenter = seg.onpointermove = (e) => show(seg, e.clientX);
+        seg.onpointerleave = hide;
+        seg.onfocus = () => show(seg, null);
+        seg.onblur = hide;
+      });
     }
 
     // "Your numbers" and "Critical condition".

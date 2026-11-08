@@ -559,26 +559,30 @@ input.switch:checked::after { transform: translateX(18px); background: var(--acc
 .lp-bar i:only-of-type { border-radius: 7px; }
 .lp-bar i:hover, .lp-bar i:focus-visible { filter: brightness(1.12) saturate(1.1); z-index: 2; }
 .lp-bar i:focus-visible { box-shadow: 0 0 0 2px var(--ink); }
-/* the popup */
-.lp-bar i::after {
-  content: attr(data-tip); position: absolute; bottom: calc(100% + 9px); left: 50%; transform: translate(-50%, 3px);
+/* the popup: one element per panel, placed by the page script (js/app/home.js, bindProgress) */
+.lp { position: relative; }
+.lp-tip {
+  position: absolute; left: 0; top: 0; z-index: 6; --ax: 50%;
   background: var(--ink); color: var(--paper); font-size: .78rem; font-weight: 500; line-height: 1.2; white-space: nowrap;
   padding: 6px 10px; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
-  opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; z-index: 6;
+  opacity: 0; pointer-events: none; transition: opacity .12s ease;
 }
-.lp-bar i::before {
-  content: ''; position: absolute; bottom: calc(100% + 3px); left: 50%; transform: translate(-50%, 3px);
+.lp-tip.on { opacity: 1; }
+.lp-tip::after {
+  content: ''; position: absolute; top: 100%; left: var(--ax); transform: translateX(-50%);
   border: 6px solid transparent; border-top-color: var(--ink); border-bottom-width: 0;
-  opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; z-index: 6;
 }
-.lp-bar i:hover::after, .lp-bar i:focus-visible::after, .lp-bar i:hover::before, .lp-bar i:focus-visible::before { opacity: 1; transform: translate(-50%, 0); }
-/* keep the popup inside the card at both ends of the bar */
-.lp-bar i:first-of-type::after { left: 0; transform: translate(0, 3px); }
-.lp-bar i:first-of-type:hover::after, .lp-bar i:first-of-type:focus-visible::after { transform: translate(0, 0); }
-.lp-bar i:last-of-type::after { left: auto; right: 0; transform: translate(0, 3px); }
-.lp-bar i:last-of-type:hover::after, .lp-bar i:last-of-type:focus-visible::after { transform: translate(0, 0); }
-.lp-bar i:only-of-type::after { left: 50%; right: auto; transform: translate(-50%, 3px); }
-.lp-bar i:only-of-type:hover::after, .lp-bar i:only-of-type:focus-visible::after { transform: translate(-50%, 0); }
+/* title row: an arrow on each side to browse earlier levels */
+.lp-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.lp-title h2 { margin: 0; text-align: center; flex: 1; font-size: 1.2rem; }
+.lp-past { font-size: .75em; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.lp-nav {
+  flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  font: inherit; font-size: 1.7rem; line-height: 1; padding: 0 0 3px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.lp-nav:hover:not(:disabled) { background: var(--hover); }
+.lp-nav:disabled { opacity: .35; cursor: default; }
 .lp-mark { position: absolute; top: -3px; bottom: -3px; left: 90%; width: 2px; background: var(--ink); opacity: .8; border-radius: 1px; z-index: 3; pointer-events: none; }
 .lp-note { margin: 8px 0 0; font-size: .85rem; }
 .crit-sub { margin-top: 0; }
