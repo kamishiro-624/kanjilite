@@ -311,20 +311,8 @@
     const coarsePointer = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
     const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // A brief wash of green or red over the whole screen.
-    // Driven by a transition plus a timer rather than a keyframe animation and "animationend": some phones (battery
-    // saver, "remove animations", older WebViews) never run or finish keyframes, and then the wash never showed.
-    // With reduced motion the colour still appears, just without the fade.
-    function flash(ok) {
-      const f = document.createElement('div');
-      f.className = 'flash ' + (ok ? 'ok' : 'bad') + (reduceMotion() ? ' still' : '');
-      f.setAttribute('aria-hidden', 'true');
-      document.body.appendChild(f);
-      void f.offsetWidth;
-      f.classList.add('on');
-      setTimeout(() => f.classList.remove('on'), reduceMotion() ? 280 : 160);
-      setTimeout(() => f.remove(), reduceMotion() ? 340 : 700);
-    }
+    // The green or red wash after an answer lives in core.js (screenFlash).
+    const flash = (ok) => KL.screenFlash(ok);
 
     function nudge() {
       const b = $('#q-go');
@@ -391,8 +379,10 @@
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', commit);
     document.body.classList.add('in-quiz');
+    KL.flashPrime();
     S.cleanup = () => {
       document.body.classList.remove('in-quiz');
+      KL.flashDrop();
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', commit);

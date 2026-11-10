@@ -23,7 +23,7 @@
 
   /** A file with your plan and settings (and, only if asked, your token) that can be loaded back later. */
   const Backup = {
-    skip: (k) => (window.Sync ? Sync.isVolatile(k) : /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed)$|kl_kanji_total_)/.test(k)),
+    skip: (k) => (window.Sync ? Sync.isVolatile(k) : /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|fx)$|kl_kanji_total_)/.test(k)),
     save(withToken) {
       const data = {};
       Object.keys(localStorage).filter((k) => k.startsWith('kl_') && !Backup.skip(k) && (withToken || k !== 'kl_token')).forEach((k) => { data[k] = localStorage.getItem(k); });

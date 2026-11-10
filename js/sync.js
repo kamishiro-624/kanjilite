@@ -30,7 +30,7 @@
     'kl_guard', 'kl_guard_cap', 'kl_guard_gate'];
 
   // Never copied anywhere (also left out of backup files): caches, queues, rate-limit bookkeeping and this feature's own state.
-  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|guard_snooze|guard_last|guard_pushed|practice_mistakes|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
+  const isVolatile = (k) => /^(kl_(req_log|blocked_until|pending_reviews|pending_starts|session|user|notify_armed|fx|guard_snooze|guard_last|guard_pushed|practice_mistakes|sync_meta|sync_on|sync_token|sync_at|sync_hint)$|kl_kanji_total_)/.test(k);
 
   const raw = { get: Storage.prototype.getItem, set: Storage.prototype.setItem, del: Storage.prototype.removeItem };
   const read = (k) => { try { return raw.get.call(localStorage, k); } catch (e) { return null; } };

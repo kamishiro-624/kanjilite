@@ -38,14 +38,91 @@
     get practiceSize() { return Math.max(5, Math.min(200, getNum('kl_practice_size', 20))); }, // items in one extra-practice session
     get practiceDakuten() { return localStorage.getItem('kl_practice_dakuten') === '1'; }, // "Different readings" also holds dakuten-changed words
     get practiceOrder() { return localStorage.getItem('kl_practice_order') || 'default'; }, // how practice items are picked and sorted
-    get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark
+    get theme() { return localStorage.getItem('kl_theme') || 'system'; }, // system | light | dark | glass
+    get fx() { return localStorage.getItem('kl_fx') || 'auto'; }, // visual effects: auto | full | lite (this device only)
+    get flash() { return localStorage.getItem('kl_flash') !== '0'; }, // the colour wash after an answer
+    get flashLevel() { return Math.max(10, Math.min(200, getNum('kl_flash_level', 100))); }, // percent of the normal strength
   };
   function applyTheme() {
     const t = settings.theme;
-    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    if (t === 'light' || t === 'dark' || t === 'glass') document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = t === 'glass' || t === 'dark' ? '#000000' : '#3d4fc4';
   }
   applyTheme();
+
+  // ---------- visual effects: full or lite ----------
+  // Lite drops the expensive things (blur behind glass, glows, shaking and popping animations, long fades) so older and
+  // slower phones stay smooth. "Auto" picks it when the device says it is short on power: data saver on, 4 or fewer
+  // CPU cores, 2 GB of memory or less, or an old WebView without backdrop blur.
+  function autoLite() {
+    try {
+      const c = navigator.connection;
+      if (c && c.saveData) return true;
+      if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) return true;
+      if (navigator.deviceMemory && navigator.deviceMemory <= 2) return true;
+      if (window.CSS && CSS.supports && !(CSS.supports('backdrop-filter', 'blur(1px)') || CSS.supports('-webkit-backdrop-filter', 'blur(1px)'))) return true;
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+  const fxLite = () => settings.fx === 'lite' || (settings.fx === 'auto' && autoLite());
+  function applyFx() { document.documentElement.dataset.fx = fxLite() ? 'lite' : 'full'; }
+  applyFx();
+
+  // ---------- the colour wash after an answer ----------
+  // Drawn frame by frame from the clock rather than with a CSS transition and timers. On phones the page is busy
+  // redrawing the card at the very moment the answer lands, so a timer-driven fade would start late, run out before
+  // anything was painted, or show only part of the screen (the layer is drawn tile by tile, top first). Here the clock
+  // starts at the first frame after that work is done, a single slow frame can't skip a stage, and the layer is made
+  // ahead of time (flashPrime) so it is already drawn when the answer comes.
+  let flashEl = null;
+  let flashRaf = 0;
+  function flashLayer() {
+    if (flashEl && flashEl.isConnected) return flashEl;
+    flashEl = document.createElement('div');
+    flashEl.className = 'flash';
+    flashEl.setAttribute('aria-hidden', 'true');
+    // In the browser's top layer (where supported) it always covers the whole screen, whatever the page or a popup is doing.
+    try { if (flashEl.showPopover) flashEl.setAttribute('popover', 'manual'); } catch (e) { /* ignore */ }
+    document.body.appendChild(flashEl);
+    try { if (flashEl.showPopover) flashEl.showPopover(); } catch (e) { /* ignore */ }
+    return flashEl;
+  }
+  function flashPrime() { if (settings.flash) flashLayer(); }
+  function flashDrop() {
+    cancelAnimationFrame(flashRaf);
+    if (flashEl) flashEl.remove();
+    flashEl = null;
+  }
+  /** ok: green wash for a right answer, red for a wrong one. level overrides the saved intensity (for the preview). */
+  function screenFlash(ok, level) {
+    if (!settings.flash && level == null) return;
+    const strength = (level == null ? settings.flashLevel : level) / 100;
+    const peak = Math.min(.85, (ok ? .16 : .3) * strength);
+    if (peak <= 0) return;
+    const f = flashLayer();
+    f.className = 'flash ' + (ok ? 'ok' : 'bad');
+    // A popup opened after the layer was made sits above it: bring it back to the front.
+    try { if (f.hidePopover && document.querySelector('dialog[open]')) { f.hidePopover(); f.showPopover(); } } catch (e) { /* ignore */ }
+    const still = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const lite = document.documentElement.dataset.fx === 'lite';
+    const up = still || lite ? 0 : 90, hold = still ? 240 : 70, down = still ? 0 : lite ? 220 : 420;
+    cancelAnimationFrame(flashRaf);
+    let last = 0, t = 0;
+    const step = (now) => {
+      if (last) t += Math.min(now - last, 48); // a slow frame can't jump past a stage
+      last = now;
+      let o;
+      if (t < up) o = peak * (t / up);
+      else if (t < up + hold) o = peak;
+      else if (t < up + hold + down) { const k = (t - up - hold) / down; o = peak * (1 - k * (2 - k)); } // ease out
+      else { f.style.opacity = '0'; return; }
+      f.style.opacity = String(o);
+      flashRaf = requestAnimationFrame(step);
+    };
+    flashRaf = requestAnimationFrame(step);
+  }
 
   // Unfinished review session, saved after every answer so you can leave and come back.
   const Session = {
@@ -93,5 +170,5 @@
     if (location.hash === hash) route(); else location.hash = hash;
   }
 
-  Object.assign(KL, { $, LESSON_CAP, Session, app, applyTheme, dlg, empty, esc, flushBg, go, loading, rand, settings, shuffle, toast });
+  Object.assign(KL, { $, LESSON_CAP, Session, app, applyFx, applyTheme, dlg, flashDrop, flashPrime, fxLite, screenFlash, empty, esc, flushBg, go, loading, rand, settings, shuffle, toast });
 })(window.KL = window.KL || {});

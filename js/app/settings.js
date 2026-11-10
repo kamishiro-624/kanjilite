@@ -3,7 +3,7 @@
 (function (KL) {
   'use strict';
   const S = KL.S;
-  const { $, Backup, Keep, Session, applyTheme, dlg, esc, go, openModal, renderSyncCard, settings, toast } = KL;
+  const { $, Backup, Keep, Session, applyFx, applyTheme, dlg, esc, go, openModal, renderSyncCard, settings, toast } = KL;
 
   // ---------- settings ----------
   const setSessionSize = (v) => {
@@ -30,7 +30,8 @@
     const nums = (list) => list.map((n) => ({ value: n, label: String(n) }));
     const delays = [[0, 'Off'], [500, '0.5 seconds'], [1000, '1 second'], [1500, '1.5 seconds'], [2000, '2 seconds'], [3000, '3 seconds']]
       .map(([value, label]) => ({ value, label }));
-    const themes = [{ value: 'system', label: 'Match my device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark (matte black)' }];
+    const themes = [{ value: 'system', label: 'Match my device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark (matte black)' }, { value: 'glass', label: 'Liquid glass (pure black, neon)' }];
+    const fxs = [{ value: 'auto', label: 'Automatic' }, { value: 'full', label: 'Full' }, { value: 'lite', label: 'Lite (older or slower devices)' }];
     const firsts = [{ value: 'random', label: 'Random' }, { value: 'meaning', label: 'Meaning' }, { value: 'reading', label: 'Reading' }];
     const gp = Guard.prefs();
     const tabs3 = [['study', 'Study'], ['alerts', 'Alerts'], ['general', 'General']];
@@ -90,6 +91,12 @@
       <div role="tabpanel" id="panel-general" aria-labelledby="tab-general"${which === 'general' ? '' : ' hidden'}>
         <section class="setcard"><h3>Appearance</h3>
           <div class="field"><label for="s-theme">Theme</label>${UI.selectHTML('s-theme', themes, settings.theme)}</div>
+          <div class="field"><label for="s-fx">Visual effects</label>${UI.selectHTML('s-fx', fxs, settings.fx)}
+            <span class="muted">Lite turns off blur, glow and shaking animations so the app stays smooth on older phones. Automatic picks it when your device looks short on power. Only affects this device.</span></div>
+          ${UI.switchHTML('s-flash', settings.flash, 'Flash the screen after each answer', 'A quick green wash for a right answer and a red one for a wrong answer.')}
+          <div class="field" id="s-flash-box"><label for="s-flash-level">Flash intensity</label>
+            <div class="range-row"><input type="range" class="fx-range" id="s-flash-level" min="10" max="200" step="10" value="${settings.flashLevel}" aria-valuetext="${settings.flashLevel}%"><output id="s-flash-out" for="s-flash-level">${settings.flashLevel}%</output></div>
+            <div class="row" style="gap:8px"><button type="button" class="btn ghost small" id="s-flash-ok">Preview right</button><button type="button" class="btn ghost small" id="s-flash-bad">Preview wrong</button></div></div>
         </section>
         <section class="setcard"><h3>Sync across devices</h3><div id="s-sync"></div></section>
         <section class="setcard"><h3>Back up and restore</h3>
@@ -133,6 +140,16 @@
     $('[role=tab][aria-selected=true]').focus();
 
     bindSel('s-theme', (v) => { localStorage.setItem('kl_theme', v); applyTheme(); });
+    bindSel('s-fx', (v) => { localStorage.setItem('kl_fx', v); applyFx(); });
+    const flashBox = $('#s-flash-box');
+    const syncFlashBox = () => { flashBox.classList.toggle('off', !settings.flash); flashBox.querySelectorAll('input,button').forEach((x) => { x.disabled = !settings.flash; }); };
+    $('#s-flash').onchange = (e) => { localStorage.setItem('kl_flash', e.target.checked ? '1' : '0'); syncFlashBox(); };
+    const lv = $('#s-flash-level');
+    lv.oninput = () => { $('#s-flash-out').textContent = lv.value + '%'; lv.setAttribute('aria-valuetext', lv.value + '%'); };
+    lv.onchange = () => { localStorage.setItem('kl_flash_level', lv.value); KL.screenFlash(true); };
+    $('#s-flash-ok').onclick = () => KL.screenFlash(true);
+    $('#s-flash-bad').onclick = () => KL.screenFlash(false);
+    syncFlashBox();
     bindSel('s-batch', (v) => localStorage.setItem('kl_lesson_batch', String(v)));
     bindSel('s-first', (v) => localStorage.setItem('kl_first', v));
     bindSel('s-delay', (v) => localStorage.setItem('kl_wrong_delay', String(v)));
