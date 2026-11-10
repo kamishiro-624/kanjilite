@@ -854,18 +854,21 @@ a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--m
 .session-panel { padding: 10px 16px; margin-bottom: 20px; }
 .center .muted.good, #guard-note.good { color: var(--good); }
 
-/* ================= Liquid glass: pure black, frosted panels, neon light =================
-   Everything costly (blur, glow, shadows, the coloured haze) goes through variables so that the "lite" effects mode
-   below can switch it all off in one place. */
+/* ================= Liquid glass: dark grey-black, translucent frosted panels, a touch of neon =================
+   Everything costly (blur, glow, shadows, the faint coloured haze) goes through variables so that the "lite" effects
+   mode below can switch it all off in one place.
+   NOTE: backdrop-filter makes an element the containing block for position: fixed descendants. The dropdown popup is
+   fixed and is placed inside the open <dialog>, so the dialog (and anything that holds a popup) must never get a
+   backdrop-filter itself: its blur comes from dialog::backdrop instead. */
 :root[data-theme="glass"] {
   color-scheme: dark;
   --paper: #000000;
-  --surface: rgba(255, 255, 255, .06);
-  --hover: rgba(255, 255, 255, .11);
-  --pop: rgba(14, 16, 24, .88);
-  --ink: #f3f6ff;
-  --muted: #9aa2bb;
-  --line: rgba(255, 255, 255, .14);
+  --surface: rgba(34, 34, 38, .55);
+  --hover: rgba(255, 255, 255, .09);
+  --pop: rgba(30, 30, 34, .78);
+  --ink: #f1f2f5;
+  --muted: #9a9ca6;
+  --line: rgba(255, 255, 255, .11);
   --accent: #33e6ff;
   --accent-ink: #00171c;
   --good: #3dffa6;
@@ -873,82 +876,123 @@ a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--m
   --warn: #ffc247;
   --good-fill: #0fae72;
   --bad-fill: #d4264f;
-  --good-bg: rgba(61, 255, 166, .1);
-  --bad-bg: rgba(255, 79, 125, .12);
-  --tag-m-bg: rgba(255, 255, 255, .16);
+  --good-bg: rgba(61, 255, 166, .09);
+  --bad-bg: rgba(255, 79, 125, .11);
+  --tag-m-bg: rgba(255, 255, 255, .14);
   --tag-m-ink: #ffffff;
-  --backdrop: rgba(0, 0, 0, .62);
+  --backdrop: rgba(0, 0, 0, .5);
   --neon: 51, 230, 255;      /* cyan, as an r, g, b triple so it can take any opacity */
   --neon2: 176, 96, 255;     /* violet */
   --neon3: 255, 70, 160;     /* pink */
-  --glass-fx: blur(22px) saturate(1.6);
-  --glow: 0 0 18px rgba(var(--neon), .45);
-  --glow-soft: 0 0 28px rgba(var(--neon), .14);
-  --drop: 0 10px 34px rgba(0, 0, 0, .55);
-  --shine: inset 0 1px 0 rgba(255, 255, 255, .2), inset 0 0 0 1px rgba(255, 255, 255, .035);
+  --glass-fx: blur(22px) saturate(1.5);
+  --glass-bd: blur(12px);    /* behind an open dialog */
+  --glow: 0 0 16px rgba(var(--neon), .4);
+  --glow-soft: 0 0 24px rgba(var(--neon), .1);
+  --drop: 0 10px 30px rgba(0, 0, 0, .5);
+  --shine: inset 0 1px 0 rgba(255, 255, 255, .13), inset 0 0 0 1px rgba(255, 255, 255, .025);
+  --glass-panel: linear-gradient(180deg, rgba(48, 48, 54, .6), rgba(22, 22, 26, .52));
 }
-/* ambient neon haze behind everything */
+/* a faint coloured haze behind everything, so the glass has something to refract */
 :root[data-theme="glass"] body::before {
   content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(55vmax 38vmax at 12% -6%, rgba(var(--neon), .22), transparent 62%),
-    radial-gradient(48vmax 38vmax at 104% 32%, rgba(var(--neon2), .20), transparent 62%),
-    radial-gradient(58vmax 36vmax at 38% 112%, rgba(var(--neon3), .14), transparent 62%);
+    radial-gradient(55vmax 38vmax at 12% -6%, rgba(var(--neon), .13), transparent 62%),
+    radial-gradient(48vmax 38vmax at 104% 32%, rgba(var(--neon2), .11), transparent 62%),
+    radial-gradient(58vmax 36vmax at 38% 112%, rgba(var(--neon3), .08), transparent 62%);
 }
-/* frosted panels */
-:root[data-theme="glass"] :is(.panel, .setcard, .card, details.info, .session-panel, .sy-auth, .tabs) {
-  background: linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .03));
-  border-color: rgba(255, 255, 255, .15);
+/* frosted panels (not the ones inside a dialog: those sit on the dialog's own glass) */
+:root[data-theme="glass"] :is(.panel, .card, details.info, .session-panel, .sy-auth) {
+  background: var(--glass-panel);
+  border-color: rgba(255, 255, 255, .11);
   box-shadow: var(--shine), var(--drop);
   -webkit-backdrop-filter: var(--glass-fx); backdrop-filter: var(--glass-fx);
 }
+:root[data-theme="glass"] dialog :is(.setcard, .card, details.info, .panel) {
+  background: rgba(255, 255, 255, .045); border-color: rgba(255, 255, 255, .1); box-shadow: var(--shine);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-theme="glass"] .tabs { background: rgba(0, 0, 0, .35); }
+:root[data-theme="glass"] .tabs [role="tab"][aria-selected="true"] { background: rgba(255, 255, 255, .1); box-shadow: var(--shine); }
 :root[data-theme="glass"] .topbar {
-  background: rgba(8, 10, 16, .62); border-bottom-color: rgba(255, 255, 255, .12);
-  box-shadow: 0 1px 0 rgba(var(--neon), .25), 0 8px 30px rgba(0, 0, 0, .45);
+  background: rgba(12, 12, 15, .66); border-bottom-color: rgba(255, 255, 255, .1);
+  box-shadow: 0 1px 0 rgba(var(--neon), .2), 0 8px 26px rgba(0, 0, 0, .45);
   -webkit-backdrop-filter: var(--glass-fx); backdrop-filter: var(--glass-fx);
 }
+/* the dialog: translucent grey-black, over a blurred page (blur lives on the backdrop, see the note above) */
 :root[data-theme="glass"] dialog {
-  background: linear-gradient(180deg, rgba(34, 38, 52, .78), rgba(12, 14, 22, .82));
-  border: 1px solid rgba(255, 255, 255, .18);
+  background: linear-gradient(180deg, rgba(42, 42, 48, .78), rgba(18, 18, 22, .84));
+  border: 1px solid rgba(255, 255, 255, .14);
   box-shadow: var(--shine), 0 24px 70px rgba(0, 0, 0, .7), var(--glow-soft);
-  -webkit-backdrop-filter: blur(30px) saturate(1.7); backdrop-filter: blur(30px) saturate(1.7);
 }
+:root[data-theme="glass"] dialog::backdrop {
+  background: var(--backdrop);
+  -webkit-backdrop-filter: var(--glass-bd); backdrop-filter: var(--glass-bd);
+}
+/* dropdown popup, toasts: translucent with blur */
 :root[data-theme="glass"] :is(.select-pop, #srs-toast, #toast) {
+  background: var(--pop);
   -webkit-backdrop-filter: var(--glass-fx); backdrop-filter: var(--glass-fx);
-  border-color: rgba(255, 255, 255, .2); box-shadow: var(--shine), var(--drop);
+  border-color: rgba(255, 255, 255, .14); box-shadow: var(--shine), 0 12px 34px rgba(0, 0, 0, .55);
 }
+:root[data-theme="glass"] .select-opt.active { background: rgba(255, 255, 255, .1); box-shadow: inset 2px 0 0 rgba(var(--neon), .8); }
 :root[data-theme="glass"] :is(.select-btn, .stepper, input[type="text"], input[type="password"], input[type="search"], input[type="number"], textarea) {
-  background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .13);
 }
 /* neon: the brand mark, buttons, progress, focus */
-:root[data-theme="glass"] .brand-mark { text-shadow: 0 0 14px rgba(var(--neon), .8), 0 0 34px rgba(var(--neon), .45); }
+:root[data-theme="glass"] .brand-mark { text-shadow: 0 0 12px rgba(var(--neon), .7), 0 0 30px rgba(var(--neon), .35); }
 :root[data-theme="glass"] .btn:not(.ghost):not(.danger) {
   background: linear-gradient(180deg, #7bf3ff, var(--accent) 60%, #12b9d6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 0 0 1px rgba(var(--neon), .55), var(--glow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 0 0 1px rgba(var(--neon), .5), var(--glow);
 }
-:root[data-theme="glass"] .btn.danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 0 16px rgba(var(--neon3), .4); }
-:root[data-theme="glass"] .btn.ghost { background: rgba(255, 255, 255, .06); box-shadow: var(--shine); }
-:root[data-theme="glass"] .btn.ghost:hover { background: rgba(255, 255, 255, .13); border-color: rgba(var(--neon), .6); box-shadow: var(--shine), 0 0 14px rgba(var(--neon), .3); }
+:root[data-theme="glass"] .btn.danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 0 14px rgba(var(--neon3), .35); }
+:root[data-theme="glass"] .btn.ghost { background: rgba(255, 255, 255, .05); box-shadow: var(--shine); }
+:root[data-theme="glass"] .btn.ghost:hover { background: rgba(255, 255, 255, .12); border-color: rgba(var(--neon), .55); box-shadow: var(--shine), 0 0 12px rgba(var(--neon), .25); }
 :root[data-theme="glass"] .progress { background: rgba(255, 255, 255, .1); }
-:root[data-theme="glass"] .progress i { background: linear-gradient(90deg, var(--accent), #8f7bff); box-shadow: 0 0 12px rgba(var(--neon), .8); }
-:root[data-theme="glass"] input.switch:checked { box-shadow: 0 0 12px rgba(var(--neon), .6); }
-:root[data-theme="glass"] :focus-visible { outline-color: var(--accent); box-shadow: 0 0 0 4px rgba(var(--neon), .22); }
-:root[data-theme="glass"] .nav a.on { text-shadow: 0 0 12px rgba(var(--neon), .6); }
-:root[data-theme="glass"] .todo a.reviews:not(.off), :root[data-theme="glass"] .todo a.lessons:not(.off) { box-shadow: var(--shine), var(--glow-soft); }
+:root[data-theme="glass"] .progress i { background: linear-gradient(90deg, var(--accent), #8f7bff); box-shadow: 0 0 10px rgba(var(--neon), .7); }
+:root[data-theme="glass"] input.switch:checked { box-shadow: 0 0 10px rgba(var(--neon), .55); }
+:root[data-theme="glass"] :focus-visible { outline-color: var(--accent); box-shadow: 0 0 0 4px rgba(var(--neon), .2); }
+:root[data-theme="glass"] .nav a.on { text-shadow: 0 0 10px rgba(var(--neon), .55); }
 /* the review card: a glass slab that glows green or red with the result */
 :root[data-theme="glass"] .qbox {
-  background: rgba(255, 255, 255, .05);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .2), var(--glow-soft), var(--drop);
+  background: rgba(255, 255, 255, .045);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .16), var(--glow-soft), var(--drop);
   -webkit-backdrop-filter: var(--glass-fx); backdrop-filter: var(--glass-fx);
 }
-:root[data-theme="glass"] .qbox.res-ok { box-shadow: 0 0 0 2px var(--good), 0 0 30px rgba(61, 255, 166, .5), var(--drop); }
-:root[data-theme="glass"] .qbox.res-bad { box-shadow: 0 0 0 2px var(--bad), 0 0 30px rgba(255, 79, 125, .5), var(--drop); }
-:root[data-theme="glass"] .answer { background: rgba(255, 255, 255, .05); }
+:root[data-theme="glass"] .qbox.res-ok { box-shadow: 0 0 0 2px var(--good), 0 0 28px rgba(61, 255, 166, .45), var(--drop); }
+:root[data-theme="glass"] .qbox.res-bad { box-shadow: 0 0 0 2px var(--bad), 0 0 28px rgba(255, 79, 125, .45), var(--drop); }
+:root[data-theme="glass"] .answer { background: rgba(255, 255, 255, .04); }
 :root[data-theme="glass"] .answer.ok { background: var(--good-fill); }
 :root[data-theme="glass"] .answer.bad { background: var(--bad-fill); }
 :root[data-theme="glass"] .lp-bar { background: rgba(255, 255, 255, .06); }
-:root[data-theme="glass"] .lp-tip { background: rgba(243, 246, 255, .95); color: #000; }
-:root[data-theme="glass"] .lp-tip::after { border-top-color: rgba(243, 246, 255, .95); }
+:root[data-theme="glass"] .lp-tip { background: rgba(241, 242, 245, .95); color: #000; }
+:root[data-theme="glass"] .lp-tip::after { border-top-color: rgba(241, 242, 245, .95); }
+
+/* ================= Small motion on widgets =================
+   Hover lift, press feedback, and soft entrances for popups, dialogs, tabs and verdicts. Only in full effects mode and
+   only when the device has not asked for reduced motion; "lite" (below) and prefers-reduced-motion get none of it. */
+@keyframes pop-in-fx { from { opacity: 0; transform: translateY(-5px) scale(.97); } }
+@keyframes dlg-in-fx { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-fx="lite"]) :is(.btn, .tile, .card, .todo a, .fc-row, .nav a, .nav button, .lp-nav, .select-btn, .select-opt, .tabs [role="tab"], .stepper button, .pk, .hard-item) {
+    transition: transform .16s cubic-bezier(.2, .8, .3, 1), box-shadow .2s ease, background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  :root:not([data-fx="lite"]) :is(.btn, .tile, .todo a, .lp-nav, .stepper button, .pk, .nav a, .nav button, .tabs [role="tab"]):active:not(:disabled):not(.off) { transform: scale(.96); }
+  :root:not([data-fx="lite"]) .select-opt:active { transform: scale(.98); }
+  :root:not([data-fx="lite"]) .select-pop { transform-origin: top center; animation: pop-in-fx .16s cubic-bezier(.2, .8, .3, 1); }
+  :root:not([data-fx="lite"]) dialog[open] { animation: dlg-in-fx .2s cubic-bezier(.2, .8, .3, 1); }
+  :root:not([data-fx="lite"]) [role="tabpanel"]:not([hidden]) { animation: rise .2s ease-out; }
+  :root:not([data-fx="lite"]) .verdict { animation: rise .22s ease-out; }
+  :root:not([data-fx="lite"]) .lp-tip { transition: opacity .12s ease; }
+  @media (hover: hover) {
+    :root:not([data-fx="lite"]) :is(.btn, .lp-nav):hover:not(:disabled):not([disabled]):not(:active) { transform: translateY(-1px); }
+    :root:not([data-fx="lite"]) :is(.tile, .pk, .hard-item):hover:not(:active) { transform: translateY(-2px); }
+    :root:not([data-fx="lite"]) .todo a:not(.off):hover:not(:active) { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0, 0, 0, .28); }
+    :root:not([data-fx="lite"]) .card:hover { transform: translateY(-1px); }
+    :root[data-theme="glass"]:not([data-fx="lite"]) :is(.tile, .pk, .todo a:not(.off)):hover { box-shadow: 0 0 18px rgba(var(--neon), .3), 0 8px 22px rgba(0, 0, 0, .4); }
+    :root[data-theme="glass"]:not([data-fx="lite"]) .card:hover { border-color: rgba(var(--neon), .35); }
+  }
+}
 
 /* ================= Lite effects: for older and slower devices =================
    No blur behind panels, no glow or big shadows, no coloured haze, and none of the shaking, popping or sliding
@@ -959,11 +1003,13 @@ a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--m
 }
 :root[data-fx="lite"][data-theme="glass"] body::before { display: none; }
 :root[data-fx="lite"][data-theme="glass"] {
-  --surface: #11131a; --pop: #161922; --hover: #1e2230; --line: rgba(255, 255, 255, .16);
+  --surface: #141519; --pop: #1a1b20; --hover: #212228; --line: rgba(255, 255, 255, .14);
 }
-:root[data-fx="lite"][data-theme="glass"] :is(.panel, .setcard, .card, details.info, .session-panel, .sy-auth, .tabs, .qbox) { background: #11131a; }
-:root[data-fx="lite"][data-theme="glass"] .topbar { background: #0a0c12; }
-:root[data-fx="lite"][data-theme="glass"] dialog { background: #12151d; }
+:root[data-fx="lite"][data-theme="glass"] :is(.panel, .setcard, .card, details.info, .session-panel, .sy-auth, .tabs, .qbox) { background: #141519; }
+:root[data-fx="lite"][data-theme="glass"] .topbar { background: #0b0b0d; }
+:root[data-fx="lite"][data-theme="glass"] dialog { background: #131418; }
+:root[data-fx="lite"] dialog::backdrop { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+:root[data-fx="lite"][data-theme="glass"] :is(.select-pop, #srs-toast, #toast) { background: #1a1b20; }
 :root[data-fx="lite"][data-theme="glass"] .btn:not(.ghost):not(.danger) { background: var(--accent); box-shadow: none; }
 :root[data-fx="lite"][data-theme="glass"] .brand-mark, :root[data-fx="lite"][data-theme="glass"] .nav a.on { text-shadow: none; }
 :root[data-fx="lite"][data-theme="glass"] .progress i { box-shadow: none; background: var(--accent); }
@@ -972,4 +1018,4 @@ a.pk:hover, a.pk:focus-visible { background: var(--hover); border-color: var(--m
 :root[data-fx="lite"] .aplay.playing svg { animation: none; }
 :root[data-fx="lite"] .qbox, :root[data-fx="lite"] .progress i, :root[data-fx="lite"] .answer, :root[data-fx="lite"] .lp-tip { transition: none; }
 :root[data-fx="lite"] #srs-toast { transition: opacity .12s; transform: translate(-50%, 0); }
-:root[data-fx="lite"] .tile, :root[data-fx="lite"] .card { transition: none; }
+:root[data-fx="lite"] .select-pop { animation: none; }

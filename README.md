@@ -42,7 +42,7 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com).
   - Lessons are marked started immediately and finished reviews are queued; both are sent in the background. WaniKani's reply to each upload updates the local copy, so nothing is re-fetched afterwards.
   - Uploads and syncs run at a lower priority than anything a screen is waiting for, share one request budget across tabs, back off when WaniKani's rate-limit headers say the budget is nearly used, and wait out a 429 instead of failing.
   - Subjects for your levels are downloaded quietly in the background after your first visit.
-- Light, dark (matte black), liquid glass (pure black with frosted panels and neon light) or follow-your-device themes. The green/red flash after an answer can be switched off or set anywhere from 10% to 200% strength. *Visual effects* is Automatic, Full or Lite; Lite (picked automatically on devices that look low on power) removes blur, glow and shaking animations. All dropdowns, steppers, switches and confirmations are drawn with CSS rather than native browser controls.
+- Light, dark (matte black), liquid glass (pure black with frosted panels and neon light) or follow-your-device themes. The green/red flash after an answer can be switched off or set anywhere from 10% to 200% strength. *Visual effects* is Automatic, Full or Lite; Lite (picked automatically on devices that look low on power) removes blur, glow and all animations, including the small hover, press and open/close motion on buttons, tiles, dropdowns and dialogs (which also stay off when your device asks for reduced motion). All dropdowns, steppers, switches and confirmations are drawn with CSS rather than native browser controls.
 
 ## Using it
 
