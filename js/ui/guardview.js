@@ -33,8 +33,9 @@
 
   /** res: Guard.evaluate result. level: 1 brief (titles only), 2 standard, 3 detailed (every warning, not just three).
       Returns '' when there is nothing (left) to show. */
-  function panel(res, sessionSize, level) {
-    const list = Guard.visible(res);
+  function panel(res, sessionSize, level, opts) {
+    // opts.all: show every warning whatever has been dismissed today (the sample shown while customizing).
+    const list = opts && opts.all ? res.warnings : Guard.visible(res);
     if (!list.length) return '';
     const shown = level >= 3 ? list : list.slice(0, 3);
     const items = shown.map((w) => `<div class="guard-item ${w.sev === 2 ? 'high' : 'watch'}">

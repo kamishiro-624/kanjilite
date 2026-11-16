@@ -207,7 +207,13 @@ p { margin: 0 0 .75rem; }
 .dash-edit { margin-bottom: 18px; }
 .dash-edit h2 { margin: 0; }
 .dash-edit p { margin: 8px 0 0; font-size: .9rem; }
+.dash-grid.editing { position: relative; }
 .dash-grid.editing .dw { position: relative; outline: 2px dashed var(--line); outline-offset: 4px; border-radius: 14px; }
+.dash-grid.editing .dw.is-active { outline: 2px solid var(--accent); }
+/* the sample inside a widget is only a picture: it takes no clicks (a click picks the widget), and scrolls when the widget is cut short */
+.dash-grid.editing .dw-body > * { pointer-events: none; user-select: none; -webkit-user-select: none; }
+.dash-grid.editing .dw-body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 12px; }
+.dash-keys kbd { font: inherit; font-size: .82rem; font-weight: 600; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--paper); white-space: nowrap; }
 .dash-grid.editing .dw:has(> .dw-body:empty) { display: flex; }
 .dash-grid.editing .dw-body:empty::before, .dm-preview .dw-body:empty::before { content: 'Nothing to show right now.'; display: block; padding: 14px 16px; color: var(--muted); font-size: .9rem; }
 .dm-preview .dw:has(> .dw-body:empty) { display: flex; }
@@ -223,16 +229,23 @@ p { margin: 0 0 .75rem; }
 .dw-gear { width: 34px; display: inline-flex; align-items: center; justify-content: center; }
 .dw-vis { border: 1px solid var(--line) !important; background: var(--surface) !important; color: var(--ink) !important; padding: 0 12px; }
 .dw-pin { font-size: .8rem; padding-right: 4px; }
-.dw.dragging { position: relative; z-index: 30; opacity: .92; box-shadow: 0 14px 34px rgba(0, 0, 0, .35); outline-color: var(--accent); cursor: grabbing; user-select: none; }
+.dw-acts { display: inline-flex; align-items: center; gap: 0; flex: none; }
+.dw-act { width: 32px; display: inline-flex; align-items: center; justify-content: center; }
+.dw-bar button.dw-act:disabled { opacity: .35; cursor: default; background: transparent; color: var(--muted); }
+.dw.dragging { position: relative; z-index: 30; opacity: .94; box-shadow: 0 14px 34px rgba(0, 0, 0, .35); outline-color: var(--accent); cursor: grabbing; user-select: none; will-change: transform; transition: none; }
 .dw.dragging .dw-grip { cursor: grabbing !important; }
 .dash-grid.dragging-any { user-select: none; -webkit-user-select: none; }
-.dash-grid.dragging-any .dw:not(.dragging) { transition: none; }
-.dw[data-drop]::before { content: ''; position: absolute; background: var(--accent); border-radius: 3px; z-index: 6; pointer-events: none; }
-.dw[data-drop="left"]::before { left: -11px; top: 0; bottom: 0; width: 5px; }
-.dw[data-drop="right"]::before { right: -11px; top: 0; bottom: 0; width: 5px; }
-.dw[data-drop="top"]::before { top: -11px; left: 0; right: 0; height: 5px; }
-.dw[data-drop="bottom"]::before { bottom: -11px; left: 0; right: 0; height: 5px; }
-/* the edge bars: a thin pill sitting on the edge, with a wide invisible target around it */
+/* where the dragged widget was lifted from, and the bar that slides between the widgets to show where it will land */
+.dw-ghost { position: absolute; z-index: 0; pointer-events: none; border: 2px dashed var(--line); border-radius: 14px; background: var(--paper); opacity: .6; box-sizing: border-box; }
+.dw-drop { position: absolute; z-index: 35; pointer-events: none; background: var(--accent); border-radius: 3px; opacity: 0; transition: left .14s cubic-bezier(.22, .8, .24, 1), top .14s cubic-bezier(.22, .8, .24, 1), width .14s cubic-bezier(.22, .8, .24, 1), height .14s cubic-bezier(.22, .8, .24, 1), opacity .1s; }
+.dw-drop.on { opacity: 1; }
+:root[data-fx="lite"] .dw-drop { transition: none; }
+@media (prefers-reduced-motion: reduce) { .dw-drop { transition: none; } }
+/* the six columns, drawn faintly while a width is dragged, so the snapping can be seen */
+.dash-grid.guides::before { content: ''; position: absolute; inset: 0; z-index: 4; pointer-events: none; border-radius: 8px;
+  background: repeating-linear-gradient(to right, color-mix(in srgb, var(--accent) 14%, transparent) 0, color-mix(in srgb, var(--accent) 14%, transparent) calc((100% - 70px) / 6), transparent calc((100% - 70px) / 6), transparent calc((100% - 70px) / 6 + 14px)); }
+@media (max-width: 640px) { .dash-grid.guides::before { display: none; } }
+
 .dw-rs { position: absolute; z-index: 5; padding: 0; border: 0; background: transparent; touch-action: none; }
 .dw-rs::before { content: ''; position: absolute; background: var(--muted); opacity: .55; border-radius: 3px; transition: opacity .15s, background .15s; }
 .dw-rs:hover::before, .dw-rs:focus-visible::before, .dw.resizing .dw-rs::before { opacity: 1; background: var(--accent); }
@@ -240,10 +253,12 @@ p { margin: 0 0 .75rem; }
 .dw-rs-w::before { left: 6px; right: 6px; top: 25%; bottom: 25%; }
 .dw-rs-h { bottom: -9px; left: 12%; right: 12%; height: 18px; cursor: ns-resize; }
 .dw-rs-h::before { top: 6px; bottom: 6px; left: 25%; right: 25%; }
+.dw-rs.snapped[data-badge]::after { outline: 2px solid var(--accent-ink); outline-offset: -3px; }
 .dw-rs[data-badge]::after { content: attr(data-badge); position: absolute; background: var(--accent); color: var(--accent-ink); font-size: .75rem; font-weight: 700; padding: 2px 7px; border-radius: 6px; white-space: nowrap; pointer-events: none; }
 .dw-rs-w[data-badge]::after { right: 14px; top: 50%; transform: translateY(-50%); }
 .dw-rs-h[data-badge]::after { bottom: 14px; left: 50%; transform: translateX(-50%); }
 @media (max-width: 640px) { .dw-rs-w { display: none; } }
+@media (max-width: 480px) { .dw-bar { gap: 2px; } .dw-act { width: 28px; } .dw-grip { width: 34px; } }
 
 /* the "how much to show" menu, with a live preview */
 .dm h2 { margin: 0 0 10px; padding-right: 60px; }
@@ -253,7 +268,10 @@ p { margin: 0 0 .75rem; }
 .dw-seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .dm-desc { margin: 8px 0 12px; font-size: .9rem; }
 .dm-preview-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
-.dm-preview { border: 1px dashed var(--line); border-radius: 12px; padding: 10px; max-height: 46vh; overflow: auto; background: var(--paper); }
+.dm-preview { border: 1px dashed var(--line); border-radius: 12px; padding: 10px; max-height: 46vh; max-height: 46dvh; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: var(--paper); }
+.dm-preview:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* only the picture inside the frame is inert (the frame must stay scrollable), and it takes no pointer events either */
+.dm-preview .dw { pointer-events: none; user-select: none; -webkit-user-select: none; }
 .dm-preview .dw { display: flex; flex-direction: column; }
 .dm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
 

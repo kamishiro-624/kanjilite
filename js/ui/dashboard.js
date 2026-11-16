@@ -214,24 +214,34 @@
   const ICON_GRIP = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><circle cx="5.5" cy="3.5" r="1.4"/><circle cx="10.5" cy="3.5" r="1.4"/><circle cx="5.5" cy="8" r="1.4"/><circle cx="10.5" cy="8" r="1.4"/><circle cx="5.5" cy="12.5" r="1.4"/><circle cx="10.5" cy="12.5" r="1.4"/></svg>';
   const ICON_GEAR = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 
+  const svg = (d) => `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICON_UNDO = svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>');
+  const ICON_REDO = svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>');
+  const ICON_RESET = svg('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>');
+
   /**
    * The strip above a widget while the dashboard is being customized: a grip to drag it by, its name, a gear (only for
-   * widgets that can say more or less) and a hide / show button.
-   * w: the widget's definition (see Layout.WIDGETS); c: its settings { span, h, v, on }.
+   * widgets that can say more or less), undo / redo / reset for this widget alone, and a hide / show button.
+   * w: the widget's definition (see Layout.WIDGETS); c: its settings { span, h, v, on };
+   * can: { undo, redo, reset } says which of those three have something to do; keys: { undo, redo, reset } are the
+   * shortcut names shown in the tooltips (for example "Ctrl+Z").
    */
-  function widgetBar(w, c) {
+  function widgetBar(w, c, can, keys) {
+    can = can || {}; keys = keys || {};
+    const act = (name, label, icon, on) => `<button type="button" class="dw-act" data-dw="${name}" aria-label="${label} for ${esc(w.name)}" title="${label}${keys[name] ? ` (${esc(keys[name])})` : ''}"${keys[name] ? ` aria-keyshortcuts="${esc(keys[name].replace('⌘', 'Meta+').replace('⇧', 'Shift+').replace('⌥', 'Alt+'))}"` : ''}${on ? '' : ' disabled'}>${icon}</button>`;
     return `<div class="dw-bar" role="group" aria-label="Customize ${esc(w.name)}">
       <button type="button" class="dw-grip" data-dw="grip" aria-label="Move ${esc(w.name)}. Drag it, or press the arrow keys">${ICON_GRIP}</button>
       <b class="dw-name">${esc(w.name)}${c.on ? '' : ' <span class="dw-hidden">Hidden</span>'}</b>
       ${w.levels.length ? `<button type="button" class="dw-gear" data-dw="gear" aria-label="How much ${esc(w.name)} shows" title="How much it shows">${ICON_GEAR}</button>` : ''}
+      <span class="dw-acts" role="group" aria-label="Undo and reset ${esc(w.name)}">${act('undo', 'Undo', ICON_UNDO, can.undo)}${act('redo', 'Redo', ICON_REDO, can.redo)}${act('reset', 'Reset this widget', ICON_RESET, can.reset)}</span>
       ${w.pinned ? '<span class="dw-pin muted">Always shown</span>' : `<button type="button" class="dw-vis" data-dw="on" aria-pressed="${c.on}">${c.on ? 'Hide' : 'Show'}</button>`}
     </div>`;
   }
 
   /** The bars on the right and bottom edges of a widget that are dragged to make it wider or taller. */
   function widgetHandles(w, c) {
-    return `<button type="button" class="dw-rs dw-rs-w" data-dw="rs-w" aria-label="Width of ${esc(w.name)}: ${c.span} of 6 columns. The left and right arrow keys change it; double-click puts it back"></button>
-      <button type="button" class="dw-rs dw-rs-h" data-dw="rs-h" aria-label="Height of ${esc(w.name)}. The up and down arrow keys change it; Home or a double-click puts it back"></button>`;
+    return `<button type="button" class="dw-rs dw-rs-w" data-dw="rs-w" aria-label="Width of ${esc(w.name)}: ${c.span} of 6 columns. The left and right arrow keys change it by one column; double-click puts it back"></button>
+      <button type="button" class="dw-rs dw-rs-h" data-dw="rs-h" aria-label="Height of ${esc(w.name)}. The up and down arrow keys change it by 20 pixels (100 with Shift); Home or a double-click puts it back to automatic"></button>`;
   }
 
   root.Dash = { comingUp, widgetBar, widgetHandles, levelProgress, critical, numbers, practice, spread, spreadGroup, SPREAD_ROWS, STAGES, SHADES, STAGE_NAMES };

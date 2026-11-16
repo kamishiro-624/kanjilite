@@ -1,7 +1,9 @@
 /* Dashboard layout: which widgets the home screen shows, in what order, how big, and how much they say.
    Pure logic plus one localStorage key (kl_dash). Kept on this device only, because a phone and a laptop want
    different layouts (it is still included in backup files). Only differences from the defaults are stored.
-   Width is a number of columns of a 6-column grid (2 to 6); height is optional, in pixels (none means "as tall as it needs"). */
+   Width is a number of columns of a 6-column grid (2 to 6); height is optional, in pixels (none means "as tall as it needs").
+   Each widget also has its own undo / redo history (kept in memory while the page is open, not saved) so one widget's
+   size, detail, visibility and place can be stepped back without touching the others. */
 (function (root) {
   'use strict';
 
@@ -25,6 +27,9 @@
   const LEVEL_NAMES = { 1: 'Brief', 2: 'Standard', 3: 'Detailed' };
   const MIN_SPAN = 2, MAX_SPAN = 6, DEFAULT_SPAN = 6;
   const MIN_H = 80, MAX_H = 1600;
+  const H_STEP = 20;      // heights snap to multiples of this (pixels)
+  const H_MAGNET = 12;    // ...and are pulled to a "magnet" (the fitted height, a neighbour's height) from this close
+  const COALESCE_MS = 800; // changes of one kind to one widget within this time count as a single undo step
   const DEFAULT_LEVEL = 2;
   const LEGACY_SPAN = { third: 2, half: 3, full: 6 }; // an earlier version stored these words
   const byId = (id) => WIDGETS.find((w) => w.id === id);
@@ -76,12 +81,46 @@
     localStorage.setItem(KEY, JSON.stringify(out));
   }
 
+  // ---------- per-widget history ----------
+  // A step is a snapshot of one widget before a change: { span, h, v, on, after } where `after` is the widget that sat just
+  // before it (null for the first place), so undoing a move puts it back next to the same neighbour.
+  const hist = {}; // id -> { u: [undo steps], r: [redo steps] }
+  const hOf = (id) => hist[id] || (hist[id] = { u: [], r: [] });
+  const snap = (st, id) => {
+    const c = st.cfg[id], i = st.order.indexOf(id);
+    return { span: c.span, h: c.h, v: c.v, on: c.on, after: i > 0 ? st.order[i - 1] : null };
+  };
+  const same = (a, b) => a.span === b.span && a.h === b.h && a.v === b.v && a.on === b.on && a.after === b.after;
+  const defaultSnap = (id) => {
+    const i = defaultOrder().indexOf(id);
+    return { span: DEFAULT_SPAN, h: null, v: DEFAULT_LEVEL, on: true, after: i > 0 ? defaultOrder()[i - 1] : null };
+  };
+  function restore(st, id, s) {
+    const def = byId(id), c = st.cfg[id];
+    c.span = s.span; c.h = s.h;
+    if (def.levels.includes(s.v)) c.v = s.v;
+    if (!def.pinned) c.on = s.on;
+    st.order.splice(st.order.indexOf(id), 1);
+    st.order.splice(s.after && st.order.includes(s.after) ? st.order.indexOf(s.after) + 1 : 0, 0, id);
+  }
+  /** Remember `before` as an undo step for a widget, unless it is a continuation of the same kind of change a moment ago
+      (holding an arrow key, or nudging a size), which stays one step. Any new change drops the redo steps. */
+  function record(id, before, kind) {
+    const h = hOf(id), now = Date.now(), top = h.u[h.u.length - 1];
+    h.r.length = 0;
+    if (top && top.kind === kind && now - top.t < COALESCE_MS) { top.t = now; return; }
+    h.u.push({ s: before, kind, t: now });
+    if (h.u.length > 100) h.u.shift();
+  }
+
   /** Move a widget one place earlier (dir -1) or later (dir 1) among all widgets, hidden ones included. */
   function move(id, dir) {
     const st = get();
     const i = st.order.indexOf(id), j = i + dir;
     if (i < 0 || j < 0 || j >= st.order.length) return st;
+    const before = snap(st, id);
     st.order.splice(j, 0, st.order.splice(i, 1)[0]);
+    record(id, before, 'move');
     save(st);
     return st;
   }
@@ -90,8 +129,10 @@
   function moveTo(id, targetId, after) {
     const st = get();
     if (id === targetId || !st.order.includes(id) || !st.order.includes(targetId)) return st;
+    const before = snap(st, id);
     st.order.splice(st.order.indexOf(id), 1);
     st.order.splice(st.order.indexOf(targetId) + (after ? 1 : 0), 0, id);
+    if (!same(before, snap(st, id))) record(id, before, 'move');
     save(st);
     return st;
   }
@@ -102,16 +143,79 @@
     const st = get();
     const def = byId(id), c = st.cfg[id];
     if (!def) return st;
-    if ('span' in patch) c.span = asSpan(patch.span);
-    if ('h' in patch) c.h = patch.h == null ? null : asHeight(patch.h);
-    if (def.levels.includes(patch.v)) c.v = patch.v;
-    if (typeof patch.on === 'boolean' && !def.pinned) c.on = patch.on;
+    const before = snap(st, id);
+    const kinds = [];
+    if ('span' in patch) { c.span = asSpan(patch.span); kinds.push('span'); }
+    if ('h' in patch) { c.h = patch.h == null ? null : asHeight(patch.h); kinds.push('h'); }
+    if (def.levels.includes(patch.v)) { c.v = patch.v; kinds.push('v'); }
+    if (typeof patch.on === 'boolean' && !def.pinned) { c.on = patch.on; kinds.push('on'); }
+    if (!same(before, snap(st, id))) record(id, before, kinds.join('+'));
     save(st);
     return st;
   }
 
-  function reset() { localStorage.setItem(KEY, '{}'); return get(); }
+  /** Step one widget back to how it was before its last change (and forward again with redo). Returns the new layout,
+      or null when there is nothing to undo / redo. */
+  function undo(id) {
+    const h = hOf(id), st = get();
+    const step = h.u.pop();
+    if (!step || !byId(id)) return null;
+    h.r.push({ s: snap(st, id), kind: step.kind, t: 0 });
+    restore(st, id, step.s);
+    save(st);
+    return st;
+  }
+  function redo(id) {
+    const h = hOf(id), st = get();
+    const step = h.r.pop();
+    if (!step || !byId(id)) return null;
+    h.u.push({ s: snap(st, id), kind: step.kind, t: 0 });
+    restore(st, id, step.s);
+    save(st);
+    return st;
+  }
+  const canUndo = (id) => hOf(id).u.length > 0;
+  const canRedo = (id) => hOf(id).r.length > 0;
+
+  /** Is this one widget at its default size, detail, visibility and place? */
+  function widgetIsDefault(id) { return same(snap(get(), id), defaultSnap(id)); }
+  /** Put one widget back to the default size, detail, visibility and place (just after the widget that precedes it by
+      default). It is an undo step like any other change. Returns the layout. */
+  function resetWidget(id) {
+    const st = get();
+    if (!byId(id)) return st;
+    const before = snap(st, id), d = defaultSnap(id);
+    restore(st, id, d);
+    if (!same(before, snap(st, id))) record(id, before, 'reset');
+    save(st);
+    return st;
+  }
+
+  /** Everything back to the default. Each widget that changed gets an undo step, so a reset can still be taken back. */
+  function reset() {
+    const st = get();
+    const before = {};
+    WIDGETS.forEach((w) => { before[w.id] = snap(st, w.id); });
+    localStorage.setItem(KEY, '{}');
+    const now = get();
+    WIDGETS.forEach((w) => { if (!same(before[w.id], snap(now, w.id))) record(w.id, before[w.id], 'reset'); });
+    return now;
+  }
+  /** Forget every widget's undo history. */
+  function clearHistory() { Object.keys(hist).forEach((k) => delete hist[k]); }
+
+  /** Snap a pixel height: to the nearest magnet (a list of { h, ...data }) when one is within H_MAGNET, otherwise to the
+      nearest multiple of H_STEP. Returns { h, magnet } (magnet is the entry that caught it, or null). */
+  function snapHeight(raw, magnets, free) {
+    const clamped = clamp(raw, MIN_H, MAX_H);
+    if (free) return { h: Math.round(clamped), magnet: null };
+    let best = null;
+    (magnets || []).forEach((m) => { const d = Math.abs(m.h - clamped); if (d <= H_MAGNET && (!best || d < best.d)) best = { d, m }; });
+    if (best) return { h: clamp(Math.round(best.m.h), MIN_H, MAX_H), magnet: best.m };
+    return { h: clamp(Math.round(clamped / H_STEP) * H_STEP, MIN_H, MAX_H), magnet: null };
+  }
+
   function isDefault() { return !Object.keys(read()).length; }
 
-  root.Layout = { WIDGETS, LEVEL_NAMES, MIN_SPAN, MAX_SPAN, DEFAULT_SPAN, MIN_H, MAX_H, KEY, get, set, move, moveTo, reset, isDefault, byId };
+  root.Layout = { WIDGETS, LEVEL_NAMES, MIN_SPAN, MAX_SPAN, DEFAULT_SPAN, MIN_H, MAX_H, H_STEP, H_MAGNET, KEY, get, set, move, moveTo, reset, isDefault, byId, undo, redo, canUndo, canRedo, resetWidget, widgetIsDefault, clearHistory, snapHeight };
 })(typeof window !== 'undefined' ? window : globalThis);
