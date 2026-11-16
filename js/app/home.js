@@ -30,6 +30,7 @@
     let announced = false;
     let practiceHtml = '';
     let spreadHtml = '';
+    let editing = false; // the dashboard is being customized: every widget shows its controls (hidden ones too)
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
     const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null, loaded: false, lpLevel: null };
@@ -45,39 +46,58 @@
       if (!force && sig === shown) return;
       // Don't rebuild the screen under someone who is typing in the session-length box.
       if (!force && app.contains(document.activeElement) && (document.activeElement.tagName === 'INPUT' || document.activeElement.classList.contains('select-btn'))) return;
+      // Nor under the customize buttons while one has focus.
+      if (!force && editing && document.activeElement && document.activeElement.closest && document.activeElement.closest('.dw-bar')) return;
       shown = sig;
 
-      const maxUp = Math.max(1, ...sd.upcoming.map((x) => x.count));
       const syncSt = Sync.status();
       const syncHint = Sync.configured && !syncSt.user && !syncSt.remembered && localStorage.getItem('kl_sync_hint') !== '0';
       const waiting = [pendR ? `<b>${pendR} finished review${pendR > 1 ? 's' : ''}</b>` : '', pendS ? `<b>${pendS} started lesson${pendS > 1 ? 's' : ''}</b>` : ''].filter(Boolean).join(' and ');
+
+      // The widgets, each as its own cell in a grid. Order, width, detail and presence come from Layout (see logic/layout.js).
+      const L = Layout.get();
+      const bodies = {
+        guard: `<div class="dw-body" id="dash-guard">${guardHtml}</div>`,
+        plan: `<div class="dw-body" id="dash-plan">${planHtml}</div>`,
+        today: `<div class="dw-body" id="dash-today">${todayHtml}</div>`,
+        todo: `<div class="dw-body todo">
+          <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
+          <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
+        </div>`,
+        session: `<div class="dw-body"><div class="panel session-panel">
+          <label for="h-size"><b>Reviews per session</b></label>
+          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+          <span class="muted" data-min="2">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More study options</button></span>
+        </div></div>`,
+        practice: `<div class="dw-body" id="dash-practice">${practiceHtml}</div>`,
+        spread: `<div class="dw-body" id="dash-spread">${spreadHtml}</div>`,
+        progress: `<div class="dw-body" id="lvl-progress">${progressHtml}</div>`,
+        numbers: `<div class="dw-body" id="dash-numbers">${numbersHtml}</div>`,
+        critical: `<div class="dw-body" id="dash-critical">${critHtml}</div>`,
+        upcoming: `<div class="dw-body"><div class="panel">
+          <h2>Coming up</h2>
+          ${sd.upcomingAll.length ? Dash.comingUp(sd.upcomingAll, L.cfg.upcoming.v, hourLabel)
+            : `<p class="muted">${sd.nextReviewsAt ? 'Next reviews: ' + esc(new Date(sd.nextReviewsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
+        </div></div>`,
+      };
+      const shownIds = L.order.filter((id) => editing || L.cfg[id].on);
+      const cells = shownIds.map((id, i) => {
+        const c = L.cfg[id], def = Layout.byId(id);
+        const bar = editing ? Dash.widgetBar(def, c, i === 0, i === shownIds.length - 1) : '';
+        return `<section class="dw${c.on ? '' : ' is-off'}" data-w="${id}" data-size="${c.size}" data-v="${c.v}">${bar}${c.on ? bodies[id] : `<div class="dw-body" inert>${bodies[id]}</div>`}</section>`;
+      }).join('');
+      const editBar = editing ? `<div class="panel dash-edit" role="region" aria-label="Customize the dashboard">
+          <div class="row between"><h2>Customize the dashboard</h2>
+            <div class="row"><button class="btn ghost small" id="dash-reset" type="button"${Layout.isDefault() ? ' disabled' : ''}>Reset layout</button><button class="btn small" id="dash-done" type="button">Done</button></div></div>
+          <p class="muted">Move, resize and hide the widgets below, and choose how much each one says. Changes are saved on this device. On a narrow screen every widget is full width.</p></div>` : '';
       app.innerHTML = `<div class="wrap">
-        <div class="greet"><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
+        <div class="greet row between"><div><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
+          ${editing ? '' : '<button class="btn ghost small" id="dash-edit" type="button">Customize</button>'}</div>
         ${waiting ? `<div class="banner">${waiting} still waiting to be sent to WaniKani. <button class="link" id="retry-sync" type="button">Send now</button></div>` : ''}
         ${syncHint ? '<div class="banner info">Keep your plan and settings the same on all your devices. <button class="link" id="sync-hint-in" type="button">Sign in</button> <button class="link" id="sync-hint-x" type="button">Not now</button></div>' : ''}
         ${snap ? `<div class="banner info">You have an unfinished review session with <b>${snap.items.length} item${snap.items.length > 1 ? 's' : ''}</b> left. Open Reviews to pick it up. <button class="link" id="discard-session" type="button">Discard it</button></div>` : ''}
-        <div id="dash-guard">${guardHtml}</div>
-        <div id="dash-plan">${planHtml}</div>
-        <div id="dash-today">${todayHtml}</div>
-        <div class="todo">
-          <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
-          <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
-        </div>
-        <div class="panel session-panel">
-          <label for="h-size"><b>Reviews per session</b></label>
-          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
-          <span class="muted">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More study options</button></span>
-        </div>
-        <div id="dash-practice">${practiceHtml}</div>
-        <div id="dash-spread">${spreadHtml}</div>
-        <div id="lvl-progress">${progressHtml}</div>
-        <div id="dash-numbers">${numbersHtml}</div>
-        <div id="dash-critical">${critHtml}</div>
-        <div class="panel">
-          <h2>Coming up</h2>
-          ${sd.upcoming.length ? `<div class="forecast">${sd.upcoming.map((x) => `<button type="button" class="fc-row" data-up="${esc(x.available_at)}" aria-label="Show the ${x.count} item${x.count === 1 ? '' : 's'} due at ${esc(hourLabel(x.available_at))}"><span>${esc(hourLabel(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.count / maxUp * 100))}%"></span></span><span class="n">${x.count}</span></button>`).join('')}</div>`
-            : `<p class="muted">${sd.nextReviewsAt ? 'Next reviews: ' + esc(new Date(sd.nextReviewsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
-        </div>
+        ${editBar}
+        <div class="dash-grid${editing ? ' editing' : ''}">${cells}</div>
       </div>`;
 
       bindPlan();
@@ -85,8 +105,12 @@
       bindProgress();
       paintPractice();
       paintSpread();
-      UI.bindStepper($('#h-size').closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
-      $('#h-more').onclick = () => openSettings('study');
+      bindLayout();
+      const hs = $('#h-size');
+      if (hs) {
+        UI.bindStepper(hs.closest('[data-stepper]'), (v) => { setSessionSize(v); toast('Session length saved.'); });
+        $('#h-more').onclick = () => openSettings('study');
+      }
       const discard = $('#discard-session');
       if (discard) discard.onclick = async () => {
         const ok = await UI.confirm({ title: 'Discard this session?', message: 'Items you already finished are safe on WaniKani.', ok: 'Discard', danger: true });
@@ -146,7 +170,7 @@
     // The workload check. Rebuilt from guardRes whenever the data or a setting changes.
     function paintGuard() {
       if (stale()) return;
-      guardHtml = X.loaded && guardRes ? GuardView.panel(guardRes, settings.sessionSize) : '';
+      guardHtml = X.loaded && guardRes ? GuardView.panel(guardRes, settings.sessionSize, Layout.get().cfg.guard.v) : '';
       const box = $('#dash-guard');
       if (box) { box.innerHTML = guardHtml; bindGuard(); }
     }
@@ -162,6 +186,37 @@
       });
       box.querySelectorAll('[data-guard-session]').forEach((b) => {
         b.onclick = () => { const n = Number(b.dataset.guardSession); setSessionSize(n); toast(`Sessions are now ${n} reviews, so each one is easier to finish.`); paintGuard(); };
+      });
+    }
+
+    // Customizing: the buttons above each widget (move, width, detail, hide) and the Done / Reset buttons.
+    // Every change is saved at once and the screen is rebuilt, so focus is put back on the button that was used.
+    function relayout(focus) {
+      if (X.loaded) paintExtras(); // the workload check, critical items and coming-up lists depend on their detail level
+      draw(true);
+      const el = (focus && $(focus)) || null;
+      const ok = el && !el.disabled ? el : (el ? el.closest('.dw-bar').querySelector('button:not(:disabled)') : $('#dash-done') || $('#dash-edit'));
+      if (ok) ok.focus();
+    }
+    function bindLayout() {
+      const edit = $('#dash-edit');
+      if (edit) edit.onclick = () => { editing = true; relayout('#dash-done'); };
+      const done = $('#dash-done');
+      if (done) done.onclick = () => { editing = false; relayout('#dash-edit'); };
+      const reset = $('#dash-reset');
+      if (reset) reset.onclick = async () => {
+        const ok = await UI.confirm({ title: 'Reset the layout?', message: 'Every widget goes back to its usual place, width and detail, and hidden widgets come back.', ok: 'Reset' });
+        if (ok) { Layout.reset(); relayout('#dash-done'); toast('Layout reset.'); }
+      };
+      app.querySelectorAll('.dw-bar [data-dw]').forEach((b) => {
+        b.onclick = () => {
+          const id = b.closest('.dw').dataset.w, act = b.dataset.dw;
+          if (act === 'earlier' || act === 'later') Layout.move(id, act === 'earlier' ? -1 : 1);
+          else if (act === 'size') Layout.set(id, { size: b.dataset.val });
+          else if (act === 'v') Layout.set(id, { v: Number(b.dataset.val) });
+          else if (act === 'on') Layout.set(id, { on: !Layout.get().cfg[id].on });
+          relayout(`.dw[data-w="${id}"] .dw-bar [data-dw="${act}"]${b.dataset.val ? `[data-val="${b.dataset.val}"]` : ''}`);
+        };
       });
     }
 
@@ -307,7 +362,8 @@
       if (!X.rs) { critHtml = Dash.critical(null, 0, 75, tile); }
       else {
         const live = (id) => { const a = Local.assignmentFor(id); return !!a && !a.data.hidden && a.data.srs_stage >= 1 && a.data.srs_stage < 9; };
-        const cr = Stats.criticalItems(X.rs.rows, live, { below: 75, limit: 8 });
+        // The detailed view lists three times as many.
+        const cr = Stats.criticalItems(X.rs.rows, live, { below: 75, limit: Layout.get().cfg.critical.v >= 3 ? 24 : 8 });
         const missing = cr.items.map((x) => x.id).filter((id) => !X.subs.has(id));
         if (missing.length) {
           api.getSubjects(missing, { background: true }).then((m) => { m.forEach((v, k) => X.subs.set(k, v)); paintExtras(); }).catch(() => {});

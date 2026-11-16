@@ -77,7 +77,7 @@
       ${rows.map((r) => `<div class="lp-row">
         <div class="lp-head"><span class="lp-type ${r.kind.cls}"><i></i>${esc(r.kind.label)}</span><span class="lp-count">${r.atGuru} of ${r.total} at Guru or above</span></div>
         ${bar(r)}</div>`).join('')}
-      ${kanji ? `<p class="muted lp-note">${level < current ? `Levelling up from here needed ${need} kanji at Guru or above: everything left of the dark mark.` : `You need ${need} kanji at Guru or above to level up: that is everything left of the dark mark.`} Hover over a segment to see its stage.</p>` : '<p class="muted lp-note">Hover over a segment to see its stage.</p>'}
+      ${kanji ? `<p class="muted lp-note" data-min="2">${level < current ? `Levelling up from here needed ${need} kanji at Guru or above: everything left of the dark mark.` : `You need ${need} kanji at Guru or above to level up: that is everything left of the dark mark.`} Hover over a segment to see its stage.</p>` : '<p class="muted lp-note" data-min="2">Hover over a segment to see its stage.</p>'}
       <div class="lp-tip" aria-hidden="true"></div></div>`;
   }
 
@@ -90,8 +90,8 @@
     if (!total) return `<div class="panel crit">${head}<p class="muted">No items are under ${below}% right now. Items show up here once you have answered them a few times.</p></div>`;
     return `<div class="panel crit">${head}
       <p class="muted crit-sub"><b>${total}</b> ${total === 1 ? 'item is' : 'items are'} under ${below}% correct. Tap one to see it, then give it extra attention in your reviews.</p>
-      <div class="tiles crit-tiles">${items.map((x) => `<div class="hard-item">${tile(x.subject)}<small class="crit-pct${x.pct < 50 ? ' bad' : ''}">${Math.round(x.pct)}% right</small></div>`).join('')}</div>
-      ${total > items.length ? `<p class="fine">Showing the ${items.length} lowest.</p>` : ''}</div>`;
+      <div class="tiles crit-tiles" data-min="2">${items.map((x) => `<div class="hard-item">${tile(x.subject)}<small class="crit-pct${x.pct < 50 ? ' bad' : ''}">${Math.round(x.pct)}% right</small></div>`).join('')}</div>
+      ${total > items.length ? `<p class="fine" data-min="2">Showing the ${items.length} lowest.</p>` : ''}</div>`;
   }
 
   // ---------------------------------------------------------------- your numbers
@@ -102,7 +102,8 @@
    */
   function numbers(d) {
     const cards = [];
-    const card = (value, label, sub, extra) => cards.push(`<div class="card${extra ? ' ' + extra : ''}"><b>${esc(value)}</b><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`);
+    // `more` cards and every small print line are left out of the brief view (data-min="2", see css).
+    const card = (value, label, sub, extra, more) => cards.push(`<div class="card${extra ? ' ' + extra : ''}"${more ? ' data-min="2"' : ''}><b>${esc(value)}</b><span>${esc(label)}</span>${sub ? `<small data-min="2">${esc(sub)}</small>` : ''}</div>`);
 
     const st = d.streak;
     if (st && (st.current || st.best)) {
@@ -115,11 +116,11 @@
     if (d.est && !d.est.already) card('~' + shortDate(d.est.date), `level ${d.level + 1} around`, `In about ${span(d.est.days)}${d.pace && d.pace.n ? ', at your recent pace' : ''}`);
 
     card(String(d.reviewsToday || 0), 'reviews today', d.bestDay ? `Best day: ${d.bestDay}` : '');
-    card(String(d.burned || 0), 'items burned', d.started ? `Of ${d.started} started` : '');
-    if (d.accuracy != null) card(d.accuracy + '%', 'answers correct', d.answers ? `${d.answers.toLocaleString()} answers` : '');
-    if (d.user && d.user.started_at) card(span((Date.now() - Date.parse(d.user.started_at)) / DAY), 'on WaniKani', `Since ${shortDate(Date.parse(d.user.started_at))} ${new Date(d.user.started_at).getFullYear()}`);
+    card(String(d.burned || 0), 'items burned', d.started ? `Of ${d.started} started` : '', '', true);
+    if (d.accuracy != null) card(d.accuracy + '%', 'answers correct', d.answers ? `${d.answers.toLocaleString()} answers` : '', '', true);
+    if (d.user && d.user.started_at) card(span((Date.now() - Date.parse(d.user.started_at)) / DAY), 'on WaniKani', `Since ${shortDate(Date.parse(d.user.started_at))} ${new Date(d.user.started_at).getFullYear()}`, '', true);
 
-    const note = !d.haveHistory ? '<p class="fine">The streak counts reviews done in this app (WaniKani no longer shares your earlier review history).</p>' : '';
+    const note = !d.haveHistory ? '<p class="fine" data-min="2">The streak counts reviews done in this app (WaniKani no longer shares your earlier review history).</p>' : '';
     return `<div class="panel nums"><h2>Your numbers</h2><div class="cards">${cards.join('')}</div>${note}</div>`;
   }
 
@@ -130,7 +131,7 @@
     const card = (k) => {
       const none = k.count === 0;
       const n = k.count == null ? '…' : plural(k.count, 'item');
-      const inner = `<span class="pk-title">${esc(k.title)}</span><span class="pk-desc">${esc(k.desc)}</span><span class="pk-n">${n}</span>`;
+      const inner = `<span class="pk-title">${esc(k.title)}</span><span class="pk-desc" data-min="2">${esc(k.desc)}</span><span class="pk-n">${n}</span>`;
       return none
         ? `<span class="pk off" aria-disabled="true">${inner}</span>`
         : `<a class="pk" href="#/practice/${esc(k.key)}">${inner}</a>`;
@@ -138,7 +139,7 @@
     return `<div class="panel practice"><div class="row between"><h2>Extra practice</h2>
       <div class="pk-opts"><label class="pk-size muted">Order ${orderHTML || ''}</label>
       <label class="pk-size muted">Items per practice ${sizeHTML}</label></div></div>
-      <p class="muted pk-note">Nothing here changes your WaniKani progress. Practise as much as you like.</p>
+      <p class="muted pk-note" data-min="2">Nothing here changes your WaniKani progress. Practise as much as you like.</p>
       <div class="pk-grid">${kinds.map(card).join('')}</div></div>`;
   }
 
@@ -183,8 +184,47 @@
         <tbody>${rows}</tbody>
         <tfoot><tr><th scope="row">Total</th>${cell('rad', sum[0], 'all:rad')}${cell('kan', sum[1], 'all:kan')}${cell('voc', sum[2], 'all:voc')}${cell('tot grand', grand, 'all:all')}</tr></tfoot>
       </table></div>
-      <p class="fine muted">Items you have started, by SRS stage. Tap a number to see those items. Lessons you have not done yet are not counted.</p></div>`;
+      <p class="fine muted" data-min="2">Items you have started, by SRS stage. Tap a number to see those items. Lessons you have not done yet are not counted.</p></div>`;
   }
 
-  root.Dash = { levelProgress, critical, numbers, practice, spread, spreadGroup, SPREAD_ROWS, STAGES, SHADES, STAGE_NAMES };
+  // ---------------------------------------------------------------- coming up
+
+  /**
+   * rows: [{ available_at, count }] for the next 24 hours, soonest first (every row, whatever is shown).
+   * level: 1 brief (4 times), 2 standard (8), 3 detailed (all of them). label(iso) names a time.
+   * Each row also shows a running total: how many reviews will have come due by then, counting every row above it.
+   */
+  function comingUp(rows, level, label) {
+    let run = 0;
+    const withTotal = rows.map((x) => ({ x, total: (run += x.count) }));
+    const shown = level >= 3 ? withTotal : withTotal.slice(0, level === 1 ? 4 : 8);
+    const max = Math.max(1, ...shown.map((r) => r.x.count));
+    const list = shown.map(({ x, total }) => `<button type="button" class="fc-row" data-up="${esc(x.available_at)}" aria-label="Show the ${plural(x.count, 'item')} due at ${esc(label(x.available_at))}. ${total.toLocaleString()} in total by then">
+        <span>${esc(label(x.available_at))}</span><span><span class="bar" style="display:block;width:${Math.max(4, Math.round(x.count / max * 100))}%"></span></span><span class="n">${x.count}</span><span class="n tot">${total.toLocaleString()}</span></button>`).join('');
+    const hidden = withTotal.length - shown.length;
+    return `<div class="forecast"><div class="fc-head" aria-hidden="true"><span></span><span></span><span class="n">Due</span><span class="n tot">Total</span></div>${list}</div>
+      ${hidden > 0 ? `<p class="fine muted">${plural(hidden, 'more time')} in the next 24 hours, ${run.toLocaleString()} reviews in all.</p>` : ''}
+      ${level >= 3 ? `<p class="fine muted">${run.toLocaleString()} ${run === 1 ? 'review comes' : 'reviews come'} due in the next 24 hours, on top of what is due now.</p>` : ''}`;
+  }
+
+  // ---------------------------------------------------------------- customizing the dashboard
+
+  /**
+   * The strip above a widget while the dashboard is being customized.
+   * w: the widget's definition (see Layout.WIDGETS); c: its settings { size, v, on }; first/last: it can't move further.
+   */
+  function widgetBar(w, c, first, last) {
+    const seg = (act, label, opts, cur, names) => `<div class="dw-seg" role="group" aria-label="${esc(label)} of ${esc(w.name)}"><span class="dw-lab" aria-hidden="true">${esc(label)}</span>${opts.map((o) =>
+      `<button type="button" data-dw="${act}" data-val="${o}" aria-pressed="${o === cur}">${esc(names[o])}</button>`).join('')}</div>`;
+    return `<div class="dw-bar" role="group" aria-label="Customize ${esc(w.name)}">
+      <b class="dw-name">${esc(w.name)}${c.on ? '' : ' <span class="dw-hidden">Hidden</span>'}</b>
+      <div class="dw-move"><button type="button" data-dw="earlier" aria-label="Move ${esc(w.name)} earlier"${first ? ' disabled' : ''}>&#9650;</button>
+        <button type="button" data-dw="later" aria-label="Move ${esc(w.name)} later"${last ? ' disabled' : ''}>&#9660;</button></div>
+      ${seg('size', 'Width', root.Layout.SIZES, c.size, root.Layout.SIZE_NAMES)}
+      ${w.levels.length ? seg('v', 'Detail', w.levels, c.v, root.Layout.LEVEL_NAMES) : ''}
+      ${w.pinned ? '<span class="dw-pin muted">Always shown, it is how you start a session.</span>' : `<button type="button" class="dw-vis" data-dw="on" aria-pressed="${c.on}">${c.on ? 'Hide' : 'Show'}</button>`}
+    </div>`;
+  }
+
+  root.Dash = { comingUp, widgetBar, levelProgress, critical, numbers, practice, spread, spreadGroup, SPREAD_ROWS, STAGES, SHADES, STAGE_NAMES };
 })(window);

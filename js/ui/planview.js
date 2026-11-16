@@ -52,10 +52,10 @@
     } else if (planGoal) {
       const eased = g && g.eased ? ` Held to ${goal} because of the reviews already scheduled for the coming days (the plan asks for ${planGoal}).` : '';
       lessons = `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${left ? `${d.lessonsDone} of ${goal} today` : `${d.lessonsDone} today`}</span></div>${bar(d.lessonsDone, goal)}
-          <small>${left ? `${num(left)} to go for today’s plan.` : 'Today’s lessons are done.'}${eased} ${queue}</small></div>`;
+          <small data-min="2">${left ? `${num(left)} to go for today’s plan.` : 'Today’s lessons are done.'}${eased} ${queue}</small></div>`;
     } else {
       lessons = `<div class="today-col"><div class="today-head"><b>Lessons</b><span>${d.lessonsDone} done today</span></div>
-          <small>${d.lessonsQueue ? `${num(d.lessonsQueue)} waiting in your queue. ` : ''}Open the plan and press “Update my plan” to get a daily lesson goal.</small></div>`;
+          <small data-min="2">${d.lessonsQueue ? `${num(d.lessonsQueue)} waiting in your queue. ` : ''}Open the plan and press “Update my plan” to get a daily lesson goal.</small></div>`;
     }
 
     const total = Math.max(0, d.reviewsTotal || 0);
@@ -69,7 +69,7 @@
     } else if (load) note = ` The plan averages about ${num(load)} reviews a day from new lessons, and more once older items come back.`;
     else note = '';
     const reviews = `<div class="today-col"><div class="today-head"><b>Reviews</b><span>${head}</span></div>${bar(d.reviewsDone, total || 1)}
-          <small>${d.reviewsDue ? `${num(d.reviewsDue)} due now. Clear what’s due before starting new lessons, so reviews don’t pile up.` : 'You’re caught up on reviews.'}${over && total ? ` That’s ${num(d.reviewsDone - total)} more than were scheduled when the day began.` : ''}${note}</small></div>`;
+          <small data-min="2">${d.reviewsDue ? `${num(d.reviewsDue)} due now. Clear what’s due before starting new lessons, so reviews don’t pile up.` : 'You’re caught up on reviews.'}${over && total ? ` That’s ${num(d.reviewsDone - total)} more than were scheduled when the day began.` : ''}${note}</small></div>`;
     return `<div class="panel today"><div class="row between"><h2>Today’s plan</h2><a class="link" href="#/plan">Open plan</a></div><div class="today-cols">${lessons}${reviews}</div></div>`;
   }
 

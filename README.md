@@ -4,7 +4,8 @@ A small, unofficial client for [WaniKani](https://www.wanikani.com).
 
 ## Features
 
-- **Dashboard**: available lessons and reviews, a 24-hour review forecast (tap a time to list the items due then, with their meanings and readings hidden until you tap an item), and level progress split into radicals, kanji and vocabulary, each bar split into one shade per SRS stage, from Burned on the left to Not started on the right (hover or tap a segment for its stage and count; the dark mark on the kanji bar is the 90% needed to level up). Also:
+- **Dashboard**: available lessons and reviews, a 24-hour review forecast called **Coming up** (each time shows how many reviews fall due then and a running total of everything due by that time; tap a time to list the items, with their meanings and readings hidden until you tap an item), and level progress split into radicals, kanji and vocabulary, each bar split into one shade per SRS stage, from Burned on the left to Not started on the right (hover or tap a segment for its stage and count; the dark mark on the kanji bar is the 90% needed to level up). Also:
+  - **Customize**: the *Customize* button at the top of the dashboard lets you rearrange it. Each widget (except the Reviews and Lessons tiles, which are always shown) can be moved earlier or later, set to a third, half or the full width of the row, hidden or shown, and given a level of detail: *Brief*, *Standard* (the usual look) or *Detailed*. Widgets that have nothing more to say offer fewer levels, for example Coming up lists 4, 8 or every time in the next 24 hours, the Workload check shows its top three warnings or all of them, and Critical condition lists 8 or 24 items. On a narrow screen every widget is full width. The layout is kept on this device only (a phone and a laptop usually want different ones) and is included in backups; *Reset layout* restores the default.
   - **Critical condition**: the items you answer correctly less than 75% of the time (at least four answers, not burned), worst first. Tap one to open it.
   - **Your numbers**: review streak, time on the current level compared with your average, the date you can expect the next level, reviews today, burned items, answer accuracy and time on WaniKani. The streak counts reviews done in this app.
 - **Workload guard**: burnout is the main reason people quit, and it usually follows a review backlog that built up while lessons kept coming. The dashboard's **Workload check** compares what you are piling up with what you actually manage (your own reviews a day over the last two weeks, plus some room for a heavy day, or a limit you set) and warns you early:
@@ -98,12 +99,13 @@ js/
     search.js         Matching subjects by meaning, reading or characters; WaniKani and Jisho links
     kana.js           Romaji to hiragana conversion
     plan.js           Level plan maths (pace, workload, schedule, on-track check) and the saved plan
+    layout.js         Dashboard layout: widget order, width, detail level and visibility (kept in this browser)
     guard.js          Workload guard: backlog, a forecast of the reviews already scheduled, skipped days, lesson pace and plan weight against your own limit; what helps
   ui/
     ui.js             CSS-styled select, number stepper, switch and confirm dialog
     charts.js         SVG charts with hover values, drag-to-zoom and editable axes
     heatmap.js        Calendar heatmap of reviews per day
-    dashboard.js      Dashboard widgets: level progress by type, critical condition, your numbers
+    dashboard.js      Dashboard widgets: level progress by type, critical condition, your numbers, coming up, the customize strip
     guardview.js      The dashboard's Workload check panel
     statsview.js      The Stats screen
     searchview.js     The Search screen
@@ -113,7 +115,7 @@ js/
     planview.js       The Plan screen and the dashboard's off-track banner
 ```
 
-Scripts load in this order (see `index.html`): `kana`, `check`, `search`, `pitch`, `api`, `store`, `stats`, `plan`, `guard`, `ui`, `charts`, `heatmap`, `dashboard`, `guardview`, `statsview`, `searchview`, `pitchview`, `audio`, `notify`, `planview`, `app`.
+Scripts load in this order (see `index.html`): `kana`, `check`, `search`, `pitch`, `api`, `store`, `stats`, `plan`, `guard`, `layout`, `ui`, `charts`, `heatmap`, `dashboard`, `guardview`, `statsview`, `searchview`, `pitchview`, `audio`, `notify`, `planview`, `app`.
 
 ## Notes and limits
 

@@ -137,11 +137,11 @@
         if (next === null || at < next) next = at;
         if (at - t <= DAY) buckets.set(d.available_at, (buckets.get(d.available_at) || 0) + 1);
       });
-      const upcoming = [...buckets.entries()]
+      const all = [...buckets.entries()]
         .map(([at, count]) => ({ available_at: at, count }))
-        .sort((x, y) => Date.parse(x.available_at) - Date.parse(y.available_at))
-        .slice(0, 8);
-      return { reviews: due, lessons: Local.lessonsAvailable().length, upcoming, nextReviewsAt: next ? iso(next) : null };
+        .sort((x, y) => Date.parse(x.available_at) - Date.parse(y.available_at));
+      // `upcoming` is the first 8 times; `upcomingAll` is every time in the next 24 hours (the detailed view of Coming up).
+      return { reviews: due, lessons: Local.lessonsAvailable().length, upcoming: all.slice(0, 8), upcomingAll: all, nextReviewsAt: next ? iso(next) : null };
     },
 
     /** The items that fall due at one of the times in the "Coming up" list (`at` is a bucket's available_at, as in summary()). */

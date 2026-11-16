@@ -181,6 +181,49 @@ p { margin: 0 0 .75rem; }
 .up-view .tile.veil { cursor: pointer; }
 .forecast .bar { height: 10px; background: var(--accent); border-radius: 5px; min-width: 4px; }
 .forecast .n { text-align: right; font-variant-numeric: tabular-nums; }
+.forecast > * { grid-template-columns: 70px 1fr 40px 52px; }
+.forecast .tot { color: var(--muted); }
+.fc-head { font-size: .78rem; color: var(--muted); padding: 0 6px; margin: 0 -6px; }
+.forecast + .fine { margin: 8px 0 0; }
+
+/* dashboard grid: each widget is a cell; width is a third, half or the full row (6 columns) */
+.dash-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.dw { grid-column: span 6; min-width: 0; display: flex; flex-direction: column; }
+.dw[data-size="half"] { grid-column: span 3; }
+.dw[data-size="third"] { grid-column: span 2; }
+.dw-body { flex: 1; min-width: 0; }
+.dw-body.todo { margin-bottom: 0; }
+.dw-body > .panel, .dw-body > .banner { margin-bottom: 0; height: 100%; box-sizing: border-box; }
+.dw:has(> .dw-body:empty) { display: none; }
+.dash-grid > .dw[data-size="third"] .todo { grid-template-columns: 1fr; }
+.dw[data-size="third"] .forecast > * { grid-template-columns: 52px 1fr 30px 40px; gap: 6px; font-size: .85rem; }
+.dw[data-size="third"] .cards, .dw[data-size="half"] .cards { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.dw[data-size="third"] .pk-grid, .dw[data-size="half"] .pk-grid { grid-template-columns: 1fr; }
+.dw[data-size="third"] .today-cols, .dw[data-size="half"] .today-cols { grid-template-columns: 1fr; }
+@media (max-width: 640px) { .dash-grid > .dw { grid-column: 1 / -1 !important; } }
+
+/* detail levels: 1 brief hides what is marked 2 and 3; 2 standard hides what is marked 3 */
+.dw[data-v="1"] [data-min="2"], .dw[data-v="1"] [data-min="3"], .dw[data-v="2"] [data-min="3"] { display: none !important; }
+
+/* customizing */
+.dash-edit { margin-bottom: 18px; }
+.dash-edit h2 { margin: 0; }
+.dash-edit p { margin: 8px 0 0; font-size: .9rem; }
+.dash-grid.editing .dw { outline: 2px dashed var(--line); outline-offset: 4px; border-radius: 14px; }
+.dash-grid.editing .dw:has(> .dw-body:empty) { display: flex; }
+.dash-grid.editing .dw-body:empty::before { content: 'Nothing to show right now.'; display: block; padding: 14px 16px; color: var(--muted); font-size: .9rem; }
+.dw.is-off > .dw-body { opacity: .4; }
+.dw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; margin-bottom: 8px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; font-size: .85rem; }
+.dw-name { flex: 1 1 100%; font-size: .95rem; }
+.dw-hidden { font-weight: 500; font-size: .75rem; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; margin-left: 4px; }
+.dw-move, .dw-seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+.dw-lab { color: var(--muted); padding: 0 6px 0 6px; }
+.dw-bar button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 5px 9px; min-height: 30px; border-radius: 7px; cursor: pointer; }
+.dw-bar button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.dw-bar button[aria-pressed="true"]:not(.dw-vis) { background: var(--accent); color: var(--accent-ink); }
+.dw-bar button:disabled { opacity: .35; cursor: not-allowed; }
+.dw-vis { border: 1px solid var(--line) !important; background: var(--surface) !important; color: var(--ink) !important; margin-left: auto; }
+.dw-pin { margin-left: auto; font-size: .8rem; }
 
 /* quiz */
 .quiz { max-width: 640px; margin: 0 auto; padding: 14px 16px 60px; }
