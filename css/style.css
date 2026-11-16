@@ -244,6 +244,10 @@ p { margin: 0 0 .75rem; }
 }
 .qglyph { font-family: var(--mincho); font-size: clamp(64px, 22vw, 124px); line-height: 1.15; word-break: keep-all; padding: 0 12px; }
 .qglyph.long { font-size: clamp(40px, 12vw, 72px); }
+.qglyph.qdef { font-family: inherit; font-weight: 700; font-size: clamp(28px, 8vw, 46px); line-height: 1.2; padding: 6px 16px 0; overflow-wrap: anywhere; }
+.kb-open .qglyph.qdef { font-size: clamp(24px, 6vw, 34px); }
+.qdef-also, .qdef-pos { font-size: .9rem; opacity: .85; padding: 4px 16px 0; }
+.qdef-pos { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; opacity: .7; padding-bottom: 2px; }
 .qglyph img { height: 1em; filter: brightness(0) invert(1); vertical-align: middle; }
 .qlabel { background: rgba(0, 0, 0, .22); margin-top: 14px; padding: 9px 12px; font-weight: 600; transition: background .2s; }
 .t-radical { background: var(--rad); }

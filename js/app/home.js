@@ -3,7 +3,7 @@
 (function (KL) {
   'use strict';
   const S = KL.S;
-  const { $, Keep, Session, app, ensureLocal, esc, flushBg, guardContext, loading, openSettings, setPracticeOrder, setPracticeSize, setSessionSize, settings, signInToSync, syncFailed, tile, toast, userKnown } = KL;
+  const { $, Keep, Session, app, ensureLocal, esc, flushBg, guardContext, loading, openSettings, setPracticeMode, setPracticeOrder, setPracticeSize, setSessionSize, settings, signInToSync, syncFailed, tile, toast, userKnown } = KL;
 
   // ---------- home ----------
   // Everything on this screen is worked out from the saved copy of your data, so it opens instantly, costs no
@@ -137,11 +137,12 @@
       const ctx = {
         all: Local.allAssignments(), assignmentFor: Local.assignmentFor, mistakes: Practice.readLog(user.id),
         rows: X.rs ? X.rs.rows : null, levelIds: X.levelIds, size: settings.practiceSize,
-        classes: Practice.readClasses(), dakuten: settings.practiceDakuten,
+        classes: Practice.readClasses(), dakuten: settings.practiceDakuten, mode: settings.practiceMode,
       };
       const kinds = Practice.KINDS.map((k) => ({ key: k.key, title: k.title, desc: k.desc, count: Practice.count(k.key, ctx) }));
       practiceHtml = Dash.practice(kinds, UI.stepperHTML('p-size', settings.practiceSize, { min: 5, max: 200, step: 5, label: 'Items per practice' }),
-        UI.selectHTML('p-order', Practice.ORDERS, Practice.orderValue(settings.practiceOrder), 'Practice order'));
+        UI.selectHTML('p-order', Practice.ORDERS, Practice.orderValue(settings.practiceOrder), 'Practice order'),
+        UI.selectHTML('p-mode', Practice.MODES, Practice.modeValue(settings.practiceMode), 'Practice style'), Practice.modeValue(settings.practiceMode) === 'meaning');
       const box = $('#dash-practice');
       if (!box) return;
       // Don't rebuild the panel under someone who is typing in its size box.
@@ -149,6 +150,7 @@
       box.innerHTML = practiceHtml;
       UI.bindStepper($('#p-size').closest('[data-stepper]'), (v) => { setPracticeSize(v); toast('Practice length saved.'); });
       UI.bindSelect($('#p-order').closest('[data-select]'), (v) => { setPracticeOrder(v); toast('Practice order saved.'); });
+      UI.bindSelect($('#p-mode').closest('[data-select]'), (v) => { setPracticeMode(v); toast('Practice style saved.'); });
     }
 
     // Item spread: every started item, by SRS stage and kind, from the saved copy.
@@ -405,6 +407,7 @@
       const st = $('#h-size'); if (st) UI.setStepper(st.closest('[data-stepper]'), settings.sessionSize);
       const ps = $('#p-size'); if (ps) UI.setStepper(ps.closest('[data-stepper]'), settings.practiceSize);
       if (X.loaded) paintExtras(); // the workload guard's settings (or the session length) may have changed
+      else paintPractice(); // the practice style changes how many items each set holds
     };
     window.addEventListener('kl-settings', onSettings);
     const unsub = Local.subscribe(redraw);

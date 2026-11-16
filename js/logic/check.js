@@ -92,5 +92,19 @@
     return { correct: false, kana };
   }
 
-  root.Check = { norm, levenshtein, meaning, reading, cleanReading };
+  /**
+   * A reading typed from the item's meaning alone (practice, "Meaning → reading"). Judged like any reading, with one
+   * kindness: a meaning can fit more than one word, so a correct reading of another word that shares it (`similar`,
+   * subjects) is not marked wrong. It is returned as {invalid, other} (no penalty) and the person tries again.
+   */
+  function readingByMeaning(subject, raw, similar) {
+    const res = reading(subject, raw);
+    if (res.invalid || res.correct) return res;
+    const other = (similar || []).find((o) => o.id !== subject.id && (o.data.readings || []).some((r) => r.accepted_answer && r.reading === res.kana));
+    if (!other) return res;
+    const word = other.data.characters || other.data.slug || 'another word';
+    return { invalid: `That is the reading of ${word}, which has a similar meaning. Try the word this meaning is for.`, kana: res.kana, other };
+  }
+
+  root.Check = { norm, levenshtein, meaning, reading, readingByMeaning, cleanReading };
 })(typeof window !== 'undefined' ? window : globalThis);

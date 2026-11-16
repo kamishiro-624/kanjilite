@@ -37,8 +37,9 @@
     const ctx = {
       all: Local.allAssignments(), assignmentFor: Local.assignmentFor, mistakes: Practice.readLog(user.id),
       rows: null, levelIds: null, size: settings.practiceSize,
-      classes: null, dakuten: settings.practiceDakuten,
+      classes: null, dakuten: settings.practiceDakuten, mode: Practice.modeValue(settings.practiceMode),
     };
+    const meaningMode = ctx.mode === 'meaning';
     const order = Practice.orderValue(settings.practiceOrder);
     const need = Practice.orderNeeds(order);
     if (kind === 'critical' || need === 'accuracy') {
@@ -80,17 +81,29 @@
     const subs = await api.getSubjects(ids);
     const synonyms = Local.synonyms(ids);
     if (stale()) return;
-    const items = picked.filter((a) => subs.has(a.data.subject_id)).map((a) => makeItem(a, subs.get(a.data.subject_id), synonyms.get(a.data.subject_id)));
+    // Meaning → reading: a meaning can fit more than one word, so other words that accept the same meanings are looked up.
+    // That needs your started vocabulary (downloaded once, then kept on this device); without it the quiz still works.
+    let index = null;
+    if (meaningMode) {
+      loading('Getting the meanings ready… the first time this downloads your vocabulary, so it can take a moment.');
+      const vocabIds = Local.allAssignments().filter((a) => !a.data.hidden && a.data.started_at && a.data.subject_type === 'vocabulary').map((a) => a.data.subject_id);
+      const known = await api.getSubjects(vocabIds).catch(() => subs);
+      if (stale()) return;
+      index = Practice.meaningIndex([...known.values()]);
+    }
+    const build = (a, s, syn) => makeItem(a, s, syn, meaningMode ? { meaning: true, similar: Practice.similarWords(s, index) } : null);
+    const items = picked.filter((a) => subs.has(a.data.subject_id)).map((a) => build(a, subs.get(a.data.subject_id), synonyms.get(a.data.subject_id)));
     if (!items.length) return empty('Nothing to practise here yet', def.empty);
     // Without a chosen order the items are mixed up; with one, the quiz draws from the front of the list.
     if (order === 'default') shuffle(items);
-    runPractice(items, def, my);
+    runPractice(items, def, my, meaningMode);
   }
 
-  function runPractice(items, def, my, again) {
+  function runPractice(items, def, my, meaningMode) {
     runQuiz({
       items,
       practice: true,
+      meaningMode: !!meaningMode,
       quitMessage: 'Quit this practice? Nothing is lost, and nothing here changes your WaniKani progress.',
       onFinish: (st) => {
         if (my !== S.routeSeq) return;
@@ -98,7 +111,7 @@
         const missed = st.done.filter((i) => i.incorrect.meaning + i.incorrect.reading > 0);
         app.innerHTML = `<div class="wrap">
           <div class="center"><h1>Practice complete</h1>
-          <p>${esc(def.title)}: ${items.length} item${items.length === 1 ? '' : 's'}, ${accuracy}% of answers correct.</p>
+          <p>${esc(def.title)}${meaningMode ? ' (meaning → reading)' : ''}: ${items.length} item${items.length === 1 ? '' : 's'}, ${accuracy}% of answers correct.</p>
           <p class="muted">This did not change your WaniKani progress.</p></div>
           ${missed.length ? `<div class="panel"><h2>Items you missed</h2><div class="tiles">${missed.map((i) => tile(i.subject)).join('')}</div></div>` : ''}
           <div class="row" style="justify-content:center">
@@ -108,8 +121,8 @@
           </div></div>`;
         const mb = $('#p-missed');
         if (mb) mb.onclick = () => {
-          const redo = missed.map((i) => makeItem(i.assignment, i.subject, i.synonyms));
-          runPractice(shuffle(redo), Object.assign({}, def, { title: def.title + ' (missed)' }), my);
+          const redo = missed.map((i) => makeItem(i.assignment, i.subject, i.synonyms, meaningMode ? { meaning: true, similar: i.similar } : null));
+          runPractice(shuffle(redo), Object.assign({}, def, { title: def.title + ' (missed)' }), my, meaningMode);
         };
         const ag = $('#p-again');
         if (ag) ag.addEventListener('click', (e) => { e.preventDefault(); route(); });

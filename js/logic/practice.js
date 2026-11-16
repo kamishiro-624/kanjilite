@@ -34,6 +34,13 @@
     { value: 'srs-asc', label: 'SRS stage: low to high' },
     { value: 'srs-desc', label: 'SRS stage: high to low' },
   ];
+  /** How a session quizzes its items. 'meaning' shows the meaning and asks for the reading (vocabulary only). */
+  const MODES = [
+    { value: 'normal', label: 'Word → meaning and reading' },
+    { value: 'meaning', label: 'Meaning → reading (vocabulary only)' },
+  ];
+  const modeValue = (v) => (MODES.some((m) => m.value === v) ? v : 'normal');
+
   const orderValue = (v) => (ORDERS.some((o) => o.value === v) ? v : 'default');
   /** What a sort needs besides the assignments: 'level' (ctx.levelOf) or 'accuracy' (ctx.rows). */
   const orderNeeds = (v) => (/^level/.test(v) ? 'level' : /^acc/.test(v) ? 'accuracy' : null);
@@ -123,7 +130,8 @@
    */
   function select(kind, ctx) {
     const size = Math.max(1, Math.floor(ctx.size) || 20);
-    const all = ctx.all.filter(eligible);
+    // Meaning → reading only makes sense for words: a kanji has several readings and a radical has none.
+    const all = ctx.all.filter((a) => eligible(a) && (modeValue(ctx.mode) !== 'meaning' || a.data.subject_type === 'vocabulary'));
     let pool = [], ordered = false, ready = true;
     switch (kind) {
       case 'recent':
@@ -173,11 +181,42 @@
     return { ready, total: pool.length, items: ordered ? pool.slice(0, size) : shuffled(pool).slice(0, size), pool };
   }
 
+  // ---------------------------------------------------------------- meaning → reading
+
+  const acceptedMeanings = (s) => (s.data.meanings || []).filter((m) => m.accepted_answer).map((m) => m.meaning);
+  const normMeaning = (m) => root.Check.norm(m);
+
+  /** What the card shows for a word: { main, also: [other accepted meanings], parts: [part of speech] }. */
+  function meaningCard(subject) {
+    const d = subject.data;
+    const main = ((d.meanings || []).find((m) => m.primary && m.accepted_answer) || (d.meanings || []).find((m) => m.accepted_answer) || {}).meaning || '';
+    const also = acceptedMeanings(subject).filter((m) => m !== main);
+    return { main, also, parts: (d.parts_of_speech || []).map((p) => String(p).replace(/_/g, ' ')) };
+  }
+
+  /** Index of words by every meaning they accept: Map of normalized meaning to [subject]. Pass every word you can. */
+  function meaningIndex(subjects) {
+    const idx = new Map();
+    subjects.forEach((s) => {
+      if (s.object !== 'vocabulary') return;
+      new Set(acceptedMeanings(s).map(normMeaning).filter(Boolean)).forEach((k) => { (idx.get(k) || idx.set(k, []).get(k)).push(s); });
+    });
+    return idx;
+  }
+
+  /** The other words that accept any of the meanings the card shows for `subject`. */
+  function similarWords(subject, idx) {
+    const c = meaningCard(subject);
+    const out = new Map();
+    [c.main].concat(c.also).map(normMeaning).forEach((k) => (idx.get(k) || []).forEach((o) => { if (o.id !== subject.id) out.set(o.id, o); }));
+    return [...out.values()];
+  }
+
   /** How many items a set holds, or null while it is still loading. */
   function count(kind, ctx) {
     const r = select(kind, ctx);
     return r.ready ? r.total : null;
   }
 
-  root.Practice = { KINDS, ORDERS, orderValue, orderNeeds, select, count, readLog, noteMistakes, readClasses, saveClasses };
+  root.Practice = { KINDS, ORDERS, MODES, modeValue, meaningCard, meaningIndex, similarWords, orderValue, orderNeeds, select, count, readLog, noteMistakes, readClasses, saveClasses };
 })(window);

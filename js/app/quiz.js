@@ -9,13 +9,19 @@
   /** Your synonyms for an item right now, so ones added in the details during a session count immediately. */
   const liveSynonyms = (item) => Local.synonyms([item.subject.id]).get(item.subject.id) || item.synonyms || [];
 
-  function makeItem(assignment, subject, synonyms) {
+  /** opts.meaning: asked only for the reading, from the meaning (practice "Meaning → reading"); opts.similar: other words with the same meaning. */
+  function makeItem(assignment, subject, synonyms, opts) {
     const meaningOnly = subject.object === 'radical' || subject.object === 'kana_vocabulary';
-    return { assignment, subject, synonyms: synonyms || [], pending: meaningOnly ? ['meaning'] : ['meaning', 'reading'], incorrect: { meaning: 0, reading: 0 } };
+    const readingFromMeaning = !!(opts && opts.meaning) && !meaningOnly;
+    return {
+      assignment, subject, synonyms: synonyms || [], similar: (opts && opts.similar) || [],
+      pending: readingFromMeaning ? ['reading'] : meaningOnly ? ['meaning'] : ['meaning', 'reading'], incorrect: { meaning: 0, reading: 0 },
+    };
   }
 
   function runQuiz(opts) {
     const practice = !!opts.practice;
+    const fromMeaning = (item) => !!opts.meaningMode && item.subject.object === 'vocabulary'; // shown its meaning, asked for the reading
     const prog = opts.progress || {};
     const st = {
       queue: opts.items.slice(), pool: [], done: [], doneBase: prog.done || 0,
@@ -98,6 +104,15 @@
       if (stats) stats.textContent = `${Math.max(0, st.total - doneN())} left` + (st.answered ? `, ${Math.round(st.correct / st.answered * 100)}% correct` : '');
     }
 
+    // The card for Meaning → reading: the English meaning (and the other accepted ones and the part of speech, which help
+    // tell similar words apart) instead of the word. The word itself is shown once the answer is in.
+    function meaningFace(s) {
+      const c = Practice.meaningCard(s);
+      return `<div class="qglyph qdef">${esc(c.main)}</div>
+        ${c.also.length ? `<div class="qdef-also">also: ${esc(c.also.join(', '))}</div>` : ''}
+        ${c.parts.length ? `<div class="qdef-pos">${esc(c.parts.join(', '))}</div>` : ''}`;
+    }
+
     function draw() {
       st.lockUntil = 0;
       const { item, kind } = st.cur;
@@ -111,8 +126,8 @@
               ${showLevel ? `<span class="qpill qlevel">Level ${s.data.level}</span>` : ''}
               ${showStage ? `<span class="qpill qstage" title="Current SRS stage">${esc(STAGES[stage])}</span>` : ''}
             </div>` : ''}
-            <div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>
-            <div class="qlabel">${esc(label)}</div>
+            ${fromMeaning(item) ? meaningFace(s) : `<div class="qglyph ${glyphClass(s)}">${glyph(s)}</div>`}
+            <div class="qlabel">${esc(fromMeaning(item) ? 'Vocabulary reading, from the meaning' : label)}</div>
           </div>`;
       const isReading = kind === 'reading';
       let input = $('#q-input');
@@ -210,7 +225,8 @@
     function submit() {
       const input = $('#q-input');
       const { item, kind } = st.cur;
-      const res = kind === 'meaning' ? Check.meaning(item.subject, liveSynonyms(item), input.value) : Check.reading(item.subject, input.value);
+      const res = kind === 'meaning' ? Check.meaning(item.subject, liveSynonyms(item), input.value)
+        : fromMeaning(item) ? Check.readingByMeaning(item.subject, input.value, item.similar) : Check.reading(item.subject, input.value);
       if (res.invalid) {
         msg(res.invalid, true);
         input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
@@ -335,6 +351,13 @@
       const box = $('#q-box');
       const card = $('.qcard');
       box.classList.add(res.correct ? 'res-ok' : 'res-bad');
+      if (fromMeaning(item)) {
+        // Now the word is shown, so the meaning is tied to how it is written.
+        card.querySelectorAll('.qdef-also, .qdef-pos').forEach((n) => n.remove());
+        const g = card.querySelector('.qglyph');
+        g.className = 'qglyph ' + glyphClass(item.subject);
+        g.innerHTML = glyph(item.subject);
+      }
       card.insertAdjacentHTML('beforeend', `<span class="qbadge ${res.correct ? 'ok' : 'bad'}" aria-hidden="true">${res.correct ? ICON_OK : ICON_BAD}</span>`);
       flash(res.correct);
 

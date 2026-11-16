@@ -127,7 +127,7 @@
   // ---------------------------------------------------------------- extra practice
 
   /** kinds: [{ key, title, desc, count }] (count null while loading); sizeHTML: the "items per practice" stepper. */
-  function practice(kinds, sizeHTML, orderHTML) {
+  function practice(kinds, sizeHTML, orderHTML, modeHTML, meaningMode) {
     const card = (k) => {
       const none = k.count === 0;
       const n = k.count == null ? '…' : plural(k.count, 'item');
@@ -137,9 +137,11 @@
         : `<a class="pk" href="#/practice/${esc(k.key)}">${inner}</a>`;
     };
     return `<div class="panel practice"><div class="row between"><h2>Extra practice</h2>
-      <div class="pk-opts"><label class="pk-size muted">Order ${orderHTML || ''}</label>
+      <div class="pk-opts"><label class="pk-size muted">Style ${modeHTML || ''}</label>
+      <label class="pk-size muted">Order ${orderHTML || ''}</label>
       <label class="pk-size muted">Items per practice ${sizeHTML}</label></div></div>
       <p class="muted pk-note" data-min="2">Nothing here changes your WaniKani progress. Practise as much as you like.</p>
+      ${meaningMode ? '<p class="muted pk-note">Style is Meaning → reading: you see an English meaning and type the word’s reading. Only vocabulary is included, so the counts below are lower.</p>' : ''}
       <div class="pk-grid">${kinds.map(card).join('')}</div></div>`;
   }
 
