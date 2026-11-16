@@ -211,22 +211,28 @@
 
   // ---------------------------------------------------------------- customizing the dashboard
 
+  const ICON_GRIP = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><circle cx="5.5" cy="3.5" r="1.4"/><circle cx="10.5" cy="3.5" r="1.4"/><circle cx="5.5" cy="8" r="1.4"/><circle cx="10.5" cy="8" r="1.4"/><circle cx="5.5" cy="12.5" r="1.4"/><circle cx="10.5" cy="12.5" r="1.4"/></svg>';
+  const ICON_GEAR = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+
   /**
-   * The strip above a widget while the dashboard is being customized.
-   * w: the widget's definition (see Layout.WIDGETS); c: its settings { size, v, on }; first/last: it can't move further.
+   * The strip above a widget while the dashboard is being customized: a grip to drag it by, its name, a gear (only for
+   * widgets that can say more or less) and a hide / show button.
+   * w: the widget's definition (see Layout.WIDGETS); c: its settings { span, h, v, on }.
    */
-  function widgetBar(w, c, first, last) {
-    const seg = (act, label, opts, cur, names) => `<div class="dw-seg" role="group" aria-label="${esc(label)} of ${esc(w.name)}"><span class="dw-lab" aria-hidden="true">${esc(label)}</span>${opts.map((o) =>
-      `<button type="button" data-dw="${act}" data-val="${o}" aria-pressed="${o === cur}">${esc(names[o])}</button>`).join('')}</div>`;
+  function widgetBar(w, c) {
     return `<div class="dw-bar" role="group" aria-label="Customize ${esc(w.name)}">
+      <button type="button" class="dw-grip" data-dw="grip" aria-label="Move ${esc(w.name)}. Drag it, or press the arrow keys">${ICON_GRIP}</button>
       <b class="dw-name">${esc(w.name)}${c.on ? '' : ' <span class="dw-hidden">Hidden</span>'}</b>
-      <div class="dw-move"><button type="button" data-dw="earlier" aria-label="Move ${esc(w.name)} earlier"${first ? ' disabled' : ''}>&#9650;</button>
-        <button type="button" data-dw="later" aria-label="Move ${esc(w.name)} later"${last ? ' disabled' : ''}>&#9660;</button></div>
-      ${seg('size', 'Width', root.Layout.SIZES, c.size, root.Layout.SIZE_NAMES)}
-      ${w.levels.length ? seg('v', 'Detail', w.levels, c.v, root.Layout.LEVEL_NAMES) : ''}
-      ${w.pinned ? '<span class="dw-pin muted">Always shown, it is how you start a session.</span>' : `<button type="button" class="dw-vis" data-dw="on" aria-pressed="${c.on}">${c.on ? 'Hide' : 'Show'}</button>`}
+      ${w.levels.length ? `<button type="button" class="dw-gear" data-dw="gear" aria-label="How much ${esc(w.name)} shows" title="How much it shows">${ICON_GEAR}</button>` : ''}
+      ${w.pinned ? '<span class="dw-pin muted">Always shown</span>' : `<button type="button" class="dw-vis" data-dw="on" aria-pressed="${c.on}">${c.on ? 'Hide' : 'Show'}</button>`}
     </div>`;
   }
 
-  root.Dash = { comingUp, widgetBar, levelProgress, critical, numbers, practice, spread, spreadGroup, SPREAD_ROWS, STAGES, SHADES, STAGE_NAMES };
+  /** The bars on the right and bottom edges of a widget that are dragged to make it wider or taller. */
+  function widgetHandles(w, c) {
+    return `<button type="button" class="dw-rs dw-rs-w" data-dw="rs-w" aria-label="Width of ${esc(w.name)}: ${c.span} of 6 columns. The left and right arrow keys change it; double-click puts it back"></button>
+      <button type="button" class="dw-rs dw-rs-h" data-dw="rs-h" aria-label="Height of ${esc(w.name)}. The up and down arrow keys change it; Home or a double-click puts it back"></button>`;
+  }
+
+  root.Dash = { comingUp, widgetBar, widgetHandles, levelProgress, critical, numbers, practice, spread, spreadGroup, SPREAD_ROWS, STAGES, SHADES, STAGE_NAMES };
 })(window);

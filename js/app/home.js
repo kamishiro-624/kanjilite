@@ -3,7 +3,7 @@
 (function (KL) {
   'use strict';
   const S = KL.S;
-  const { $, Keep, Session, app, ensureLocal, esc, flushBg, guardContext, loading, openSettings, setPracticeMode, setPracticeOrder, setPracticeSize, setSessionSize, settings, signInToSync, syncFailed, tile, toast, userKnown } = KL;
+  const { $, Keep, Session, app, ensureLocal, esc, flushBg, guardContext, loading, openModal, openSettings, setPracticeMode, setPracticeOrder, setPracticeSize, setSessionSize, settings, signInToSync, syncFailed, tile, toast, userKnown } = KL;
 
   // ---------- home ----------
   // Everything on this screen is worked out from the saved copy of your data, so it opens instantly, costs no
@@ -31,9 +31,40 @@
     let practiceHtml = '';
     let spreadHtml = '';
     let editing = false; // the dashboard is being customized: every widget shows its controls (hidden ones too)
+    let busy = false; // a widget is being dragged or resized: the screen must not be rebuilt under the pointer
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
     const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null, loaded: false, lpLevel: null };
+
+    // The inside of one widget at a level of detail (1 brief, 2 standard, 3 detailed). The dashboard uses the saved level;
+    // the preview in the gear menu asks for others. Widgets whose detail only hides notes are done in css (data-min).
+    function bodyHtml(id, v, sd) {
+      switch (id) {
+        case 'guard': return `<div class="dw-body" id="dash-guard">${v === Layout.get().cfg.guard.v ? guardHtml : guardFor(v)}</div>`;
+        case 'plan': return `<div class="dw-body" id="dash-plan">${planHtml}</div>`;
+        case 'today': return `<div class="dw-body" id="dash-today">${todayHtml}</div>`;
+        case 'todo': return `<div class="dw-body todo">
+          <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
+          <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
+        </div>`;
+        case 'session': return `<div class="dw-body"><div class="panel session-panel">
+          <label for="h-size"><b>Reviews per session</b></label>
+          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
+          <span class="muted" data-min="2">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More study options</button></span>
+        </div></div>`;
+        case 'practice': return `<div class="dw-body" id="dash-practice">${practiceHtml}</div>`;
+        case 'spread': return `<div class="dw-body" id="dash-spread">${spreadHtml}</div>`;
+        case 'progress': return `<div class="dw-body" id="lvl-progress">${progressHtml}</div>`;
+        case 'numbers': return `<div class="dw-body" id="dash-numbers">${numbersHtml}</div>`;
+        case 'critical': return `<div class="dw-body" id="dash-critical">${v === Layout.get().cfg.critical.v ? critHtml : critFor(v)}</div>`;
+        case 'upcoming': return `<div class="dw-body"><div class="panel">
+          <h2>Coming up</h2>
+          ${sd.upcomingAll.length ? Dash.comingUp(sd.upcomingAll, v, hourLabel)
+            : `<p class="muted">${sd.nextReviewsAt ? 'Next reviews: ' + esc(new Date(sd.nextReviewsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
+        </div></div>`;
+        default: return '';
+      }
+    }
 
     function draw(force) {
       if (stale()) return;
@@ -46,6 +77,7 @@
       if (!force && sig === shown) return;
       // Don't rebuild the screen under someone who is typing in the session-length box.
       if (!force && app.contains(document.activeElement) && (document.activeElement.tagName === 'INPUT' || document.activeElement.classList.contains('select-btn'))) return;
+      if (!force && busy) return;
       // Nor under the customize buttons while one has focus.
       if (!force && editing && document.activeElement && document.activeElement.closest && document.activeElement.closest('.dw-bar')) return;
       shown = sig;
@@ -56,40 +88,16 @@
 
       // The widgets, each as its own cell in a grid. Order, width, detail and presence come from Layout (see logic/layout.js).
       const L = Layout.get();
-      const bodies = {
-        guard: `<div class="dw-body" id="dash-guard">${guardHtml}</div>`,
-        plan: `<div class="dw-body" id="dash-plan">${planHtml}</div>`,
-        today: `<div class="dw-body" id="dash-today">${todayHtml}</div>`,
-        todo: `<div class="dw-body todo">
-          <a class="reviews${sd.reviews ? '' : ' off'}" href="#/reviews"><span class="what">Reviews</span><span class="count">${sd.reviews}</span></a>
-          <a class="lessons${sd.lessons ? '' : ' off'}" href="#/lessons"><span class="what">Lessons</span><span class="count">${sd.lessons}</span></a>
-        </div>`,
-        session: `<div class="dw-body"><div class="panel session-panel">
-          <label for="h-size"><b>Reviews per session</b></label>
-          ${UI.stepperHTML('h-size', settings.sessionSize, { min: 0, max: 5000, step: 5, label: 'Reviews per session' })}
-          <span class="muted" data-min="2">0 means everything that’s due. <button class="link inline" id="h-more" type="button">More study options</button></span>
-        </div></div>`,
-        practice: `<div class="dw-body" id="dash-practice">${practiceHtml}</div>`,
-        spread: `<div class="dw-body" id="dash-spread">${spreadHtml}</div>`,
-        progress: `<div class="dw-body" id="lvl-progress">${progressHtml}</div>`,
-        numbers: `<div class="dw-body" id="dash-numbers">${numbersHtml}</div>`,
-        critical: `<div class="dw-body" id="dash-critical">${critHtml}</div>`,
-        upcoming: `<div class="dw-body"><div class="panel">
-          <h2>Coming up</h2>
-          ${sd.upcomingAll.length ? Dash.comingUp(sd.upcomingAll, L.cfg.upcoming.v, hourLabel)
-            : `<p class="muted">${sd.nextReviewsAt ? 'Next reviews: ' + esc(new Date(sd.nextReviewsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })) : 'Nothing scheduled in the next 24 hours.'}</p>`}
-        </div></div>`,
-      };
       const shownIds = L.order.filter((id) => editing || L.cfg[id].on);
-      const cells = shownIds.map((id, i) => {
+      const cells = shownIds.map((id) => {
         const c = L.cfg[id], def = Layout.byId(id);
-        const bar = editing ? Dash.widgetBar(def, c, i === 0, i === shownIds.length - 1) : '';
-        return `<section class="dw${c.on ? '' : ' is-off'}" data-w="${id}" data-size="${c.size}" data-v="${c.v}">${bar}${c.on ? bodies[id] : `<div class="dw-body" inert>${bodies[id]}</div>`}</section>`;
+        const body = bodyHtml(id, c.v, sd);
+        return `<section class="dw${c.on ? '' : ' is-off'}${c.h ? ' has-h' : ''}" data-w="${id}" data-span="${c.span}" data-v="${c.v}" style="grid-column:span ${c.span}${c.h ? `;height:${c.h}px` : ''}">${editing ? Dash.widgetBar(def, c) : ''}${c.on ? body : `<div class="dw-body" inert>${body}</div>`}${editing ? Dash.widgetHandles(def, c) : ''}</section>`;
       }).join('');
       const editBar = editing ? `<div class="panel dash-edit" role="region" aria-label="Customize the dashboard">
           <div class="row between"><h2>Customize the dashboard</h2>
             <div class="row"><button class="btn ghost small" id="dash-reset" type="button"${Layout.isDefault() ? ' disabled' : ''}>Reset layout</button><button class="btn small" id="dash-done" type="button">Done</button></div></div>
-          <p class="muted">Move, resize and hide the widgets below, and choose how much each one says. Changes are saved on this device. On a narrow screen every widget is full width.</p></div>` : '';
+          <p class="muted">Drag a widget by its grip to move it, and drag its right or bottom edge to resize it (double-click an edge to put it back). The gear shows how much a widget says, with a preview. Changes are saved on this device. On a narrow screen every widget is full width.</p></div>` : '';
       app.innerHTML = `<div class="wrap">
         <div class="greet row between"><div><h1>Hello, ${esc(u.username)}</h1><p class="muted">Level ${u.level}</p></div>
           ${editing ? '' : '<button class="btn ghost small" id="dash-edit" type="button">Customize</button>'}</div>
@@ -169,10 +177,11 @@
       if (box) box.innerHTML = spreadHtml;
     }
 
+    const guardFor = (v) => (X.loaded && guardRes ? GuardView.panel(guardRes, settings.sessionSize, v) : '');
     // The workload check. Rebuilt from guardRes whenever the data or a setting changes.
     function paintGuard() {
       if (stale()) return;
-      guardHtml = X.loaded && guardRes ? GuardView.panel(guardRes, settings.sessionSize, Layout.get().cfg.guard.v) : '';
+      guardHtml = guardFor(Layout.get().cfg.guard.v);
       const box = $('#dash-guard');
       if (box) { box.innerHTML = guardHtml; bindGuard(); }
     }
@@ -191,15 +200,173 @@
       });
     }
 
-    // Customizing: the buttons above each widget (move, width, detail, hide) and the Done / Reset buttons.
-    // Every change is saved at once and the screen is rebuilt, so focus is put back on the button that was used.
+    // Customizing. Every change is saved at once and the screen is rebuilt, so focus is put back on the control that was used.
     function relayout(focus) {
       if (X.loaded) paintExtras(); // the workload check, critical items and coming-up lists depend on their detail level
       draw(true);
       const el = (focus && $(focus)) || null;
-      const ok = el && !el.disabled ? el : (el ? el.closest('.dw-bar').querySelector('button:not(:disabled)') : $('#dash-done') || $('#dash-edit'));
+      const ok = el && !el.disabled ? el : (el && el.closest('.dw') ? el.closest('.dw').querySelector('.dw-bar button') : $('#dash-done') || $('#dash-edit'));
       if (ok) ok.focus();
     }
+    const clampN = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+    // Dragging a widget by its grip: it follows the pointer, and a bar shows where it will land on the edge of the widget under it.
+    // Pointer events, so it works with a finger as well. Arrow keys on the grip move it one place at a time.
+    function bindDrag(grid) {
+      grid.querySelectorAll('.dw-grip').forEach((grip) => {
+        const cell = grip.closest('.dw'), id = cell.dataset.w;
+        grip.onkeydown = (e) => {
+          const dir = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : 0;
+          if (!dir) return;
+          e.preventDefault();
+          Layout.move(id, dir);
+          relayout(`.dw[data-w="${id}"] .dw-grip`);
+        };
+        grip.onpointerdown = (e) => {
+          if (e.button != null && e.button > 0) return;
+          e.preventDefault();
+          const others = [...grid.querySelectorAll(':scope > .dw')].filter((c) => c !== cell);
+          const sx = e.clientX, sy = e.clientY, scroll0 = window.scrollY;
+          let px = sx, py = sy, hit = null, after = false, raf = 0, live = true;
+          busy = true;
+          cell.classList.add('dragging');
+          grid.classList.add('dragging-any');
+          try { grip.setPointerCapture(e.pointerId); } catch (err) { /* the drag still works without capture */ }
+          const mark = (target, side) => {
+            others.forEach((c) => c.removeAttribute('data-drop'));
+            if (target) target.setAttribute('data-drop', side);
+          };
+          const place = () => {
+            cell.style.transform = `translate(${px - sx}px, ${py - sy + (window.scrollY - scroll0)}px)`;
+            const gr = grid.getBoundingClientRect();
+            let best = null, bd = Infinity;
+            others.forEach((c) => {
+              const r = c.getBoundingClientRect();
+              const inside = px >= r.left && px <= r.right && py >= r.top && py <= r.bottom;
+              const d = inside ? 0 : Math.hypot(px - (r.left + r.width / 2), py - (r.top + r.height / 2));
+              if (d < bd) { bd = d; best = { c, r }; }
+            });
+            if (!best) { hit = null; mark(null); return; }
+            // A wide widget is entered from above or below, a narrow one from its left or right.
+            const wide = best.r.width > gr.width * 0.7;
+            after = wide ? py > best.r.top + best.r.height / 2 : px > best.r.left + best.r.width / 2;
+            hit = best.c;
+            mark(hit, wide ? (after ? 'bottom' : 'top') : (after ? 'right' : 'left'));
+          };
+          // Near the top or bottom of the screen the page scrolls by itself, so a long dashboard can be rearranged.
+          const loop = () => {
+            if (!live) return;
+            const edge = 70;
+            if (py < edge) window.scrollBy(0, -Math.ceil((edge - py) / 4));
+            else if (py > window.innerHeight - edge) window.scrollBy(0, Math.ceil((py - (window.innerHeight - edge)) / 4));
+            place();
+            raf = requestAnimationFrame(loop);
+          };
+          grip.onpointermove = (ev) => { px = ev.clientX; py = ev.clientY; };
+          const finish = (drop) => {
+            live = false;
+            cancelAnimationFrame(raf);
+            grip.onpointermove = grip.onpointerup = grip.onpointercancel = null;
+            try { grip.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+            const target = drop && hit ? hit.dataset.w : null;
+            busy = false;
+            if (target) { Layout.moveTo(id, target, after); relayout(`.dw[data-w="${id}"] .dw-grip`); return; }
+            cell.classList.remove('dragging');
+            grid.classList.remove('dragging-any');
+            cell.style.transform = '';
+            mark(null);
+          };
+          grip.onpointerup = () => finish(true);
+          grip.onpointercancel = () => finish(false);
+          loop();
+        };
+      });
+    }
+
+    // The bars on a widget's right and bottom edges. The width snaps to the columns of the grid (2 to 6 of 6) and shows
+    // how many; the height is free. Both can be set with the arrow keys too, and a double-click puts them back.
+    function bindResize(grid) {
+      grid.querySelectorAll('.dw-rs').forEach((h) => {
+        const cell = h.closest('.dw'), id = cell.dataset.w, wide = h.dataset.dw === 'rs-w';
+        const sel = `.dw[data-w="${id}"] [data-dw="${h.dataset.dw}"]`;
+        h.ondblclick = () => { Layout.set(id, wide ? { span: Layout.DEFAULT_SPAN } : { h: null }); relayout(sel); };
+        h.onkeydown = (e) => {
+          const cur = Layout.get().cfg[id];
+          if (wide && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) Layout.set(id, { span: cur.span + (e.key === 'ArrowRight' ? 1 : -1) });
+          else if (!wide && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) Layout.set(id, { h: (cur.h || cell.offsetHeight) + (e.key === 'ArrowDown' ? 24 : -24) });
+          else if (!wide && e.key === 'Home') Layout.set(id, { h: null });
+          else return;
+          e.preventDefault();
+          relayout(sel);
+        };
+        h.onpointerdown = (e) => {
+          if (e.button != null && e.button > 0) return;
+          e.preventDefault();
+          busy = true;
+          cell.classList.add('resizing');
+          try { h.setPointerCapture(e.pointerId); } catch (err) { /* works without capture */ }
+          const gap = parseFloat(getComputedStyle(grid).columnGap) || 14;
+          let span = Layout.get().cfg[id].span, height = null;
+          h.onpointermove = (ev) => {
+            const r = cell.getBoundingClientRect();
+            if (wide) {
+              const colW = (grid.getBoundingClientRect().width - gap * 5) / 6;
+              const n = clampN(Math.round((ev.clientX - r.left + gap) / (colW + gap)), Layout.MIN_SPAN, Layout.MAX_SPAN);
+              span = n;
+              cell.style.gridColumn = `span ${n}`;
+              cell.dataset.span = n;
+              h.dataset.badge = `${n} of 6`;
+            } else {
+              height = clampN(Math.round(ev.clientY - r.top), Layout.MIN_H, Layout.MAX_H);
+              cell.style.height = height + 'px';
+              cell.classList.add('has-h');
+              h.dataset.badge = height + ' px';
+            }
+          };
+          const finish = (keep) => {
+            h.onpointermove = h.onpointerup = h.onpointercancel = null;
+            try { h.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+            busy = false;
+            if (keep && (wide || height != null)) Layout.set(id, wide ? { span } : { h: height });
+            relayout(sel);
+          };
+          h.onpointerup = () => finish(true);
+          h.onpointercancel = () => finish(false);
+        };
+      });
+    }
+
+    // The gear: pick a level of detail and see the widget as it will look before saving it.
+    function openDetailMenu(id) {
+      const def = Layout.byId(id);
+      const cur = Layout.get().cfg[id].v;
+      let pick = cur;
+      const sd = Local.summary();
+      // The preview is a copy of the widget, so its ids are dropped (the real one keeps them) and it is made inert (nothing in it can be clicked).
+      const preview = () => bodyHtml(id, pick, sd).replace(/\s(id|for)="[^"]*"/g, '');
+      openModal(`<div class="dm"><h2>${esc(def.name)}: how much to show</h2>
+        <div class="dw-seg" role="group" aria-label="Amount of detail">${def.levels.map((l) => `<button type="button" data-dm="${l}" aria-pressed="${l === pick}">${esc(Layout.LEVEL_NAMES[l])}</button>`).join('')}</div>
+        <p class="muted dm-desc" id="dm-desc" aria-live="polite"></p>
+        <div class="dm-preview-label muted">Preview</div>
+        <div class="dm-preview" inert><div class="dw" id="dm-view"></div></div>
+        <div class="dm-actions"><button type="button" class="btn ghost small" data-close>Cancel</button><button type="button" class="btn small" id="dm-save">Use this</button></div></div>`);
+      const paint = () => {
+        $('#dm-desc').textContent = def.detail[pick] + (pick === cur ? ' (what you have now)' : '');
+        const v = $('#dm-view');
+        v.dataset.v = pick;
+        v.innerHTML = preview();
+        $('#dm-save').disabled = pick === cur;
+        document.querySelectorAll('[data-dm]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.dm) === pick)));
+      };
+      document.querySelectorAll('[data-dm]').forEach((b) => { b.onclick = () => { pick = Number(b.dataset.dm); paint(); }; });
+      $('#dm-save').onclick = () => {
+        Layout.set(id, { v: pick });
+        document.getElementById('modal').close();
+        relayout(`.dw[data-w="${id}"] .dw-gear`);
+      };
+      paint();
+    }
+
     function bindLayout() {
       const edit = $('#dash-edit');
       if (edit) edit.onclick = () => { editing = true; relayout('#dash-done'); };
@@ -207,18 +374,16 @@
       if (done) done.onclick = () => { editing = false; relayout('#dash-edit'); };
       const reset = $('#dash-reset');
       if (reset) reset.onclick = async () => {
-        const ok = await UI.confirm({ title: 'Reset the layout?', message: 'Every widget goes back to its usual place, width and detail, and hidden widgets come back.', ok: 'Reset' });
+        const ok = await UI.confirm({ title: 'Reset the layout?', message: 'Every widget goes back to its usual place, size and detail, and hidden widgets come back.', ok: 'Reset' });
         if (ok) { Layout.reset(); relayout('#dash-done'); toast('Layout reset.'); }
       };
-      app.querySelectorAll('.dw-bar [data-dw]').forEach((b) => {
-        b.onclick = () => {
-          const id = b.closest('.dw').dataset.w, act = b.dataset.dw;
-          if (act === 'earlier' || act === 'later') Layout.move(id, act === 'earlier' ? -1 : 1);
-          else if (act === 'size') Layout.set(id, { size: b.dataset.val });
-          else if (act === 'v') Layout.set(id, { v: Number(b.dataset.val) });
-          else if (act === 'on') Layout.set(id, { on: !Layout.get().cfg[id].on });
-          relayout(`.dw[data-w="${id}"] .dw-bar [data-dw="${act}"]${b.dataset.val ? `[data-val="${b.dataset.val}"]` : ''}`);
-        };
+      const grid = $('.dash-grid.editing');
+      if (!grid) return;
+      bindDrag(grid);
+      bindResize(grid);
+      grid.querySelectorAll('.dw-gear').forEach((b) => { b.onclick = () => openDetailMenu(b.closest('.dw').dataset.w); });
+      grid.querySelectorAll('.dw-vis').forEach((b) => {
+        b.onclick = () => { const id = b.closest('.dw').dataset.w; Layout.set(id, { on: !Layout.get().cfg[id].on }); relayout(`.dw[data-w="${id}"] .dw-vis`); };
       });
     }
 
@@ -298,6 +463,19 @@
       });
     }
 
+    // Critical condition at a level of detail: the detailed one lists 24 items instead of 8 (the brief one hides them with css).
+    function critFor(v) {
+      if (!X.rs) return Dash.critical(null, 0, 75, tile);
+      const live = (id) => { const a = Local.assignmentFor(id); return !!a && !a.data.hidden && a.data.srs_stage >= 1 && a.data.srs_stage < 9; };
+      const cr = Stats.criticalItems(X.rs.rows, live, { below: 75, limit: v >= 3 ? 24 : 8 });
+      const missing = cr.items.map((x) => x.id).filter((id) => !X.subs.has(id));
+      if (missing.length) {
+        api.getSubjects(missing, { background: true }).then((m) => { m.forEach((val, k) => X.subs.set(k, val)); paintExtras(); }).catch(() => {});
+      }
+      const items = cr.items.filter((x) => X.subs.has(x.id)).map((x) => Object.assign({ subject: X.subs.get(x.id) }, x));
+      return Dash.critical(missing.length && !items.length ? null : items, cr.count, 75, tile);
+    }
+
     // "Your numbers" and "Critical condition".
     function paintExtras() {
       if (stale()) return;
@@ -361,18 +539,7 @@
       } else todayHtml = '';
       const tb = $('#dash-today'); if (tb) tb.innerHTML = todayHtml;
 
-      if (!X.rs) { critHtml = Dash.critical(null, 0, 75, tile); }
-      else {
-        const live = (id) => { const a = Local.assignmentFor(id); return !!a && !a.data.hidden && a.data.srs_stage >= 1 && a.data.srs_stage < 9; };
-        // The detailed view lists three times as many.
-        const cr = Stats.criticalItems(X.rs.rows, live, { below: 75, limit: Layout.get().cfg.critical.v >= 3 ? 24 : 8 });
-        const missing = cr.items.map((x) => x.id).filter((id) => !X.subs.has(id));
-        if (missing.length) {
-          api.getSubjects(missing, { background: true }).then((m) => { m.forEach((v, k) => X.subs.set(k, v)); paintExtras(); }).catch(() => {});
-        }
-        const items = cr.items.filter((x) => X.subs.has(x.id)).map((x) => Object.assign({ subject: X.subs.get(x.id) }, x));
-        critHtml = Dash.critical(missing.length && !items.length ? null : items, cr.count, 75, tile);
-      }
+      critHtml = critFor(Layout.get().cfg.critical.v);
       const cb = $('#dash-critical'); if (cb) cb.innerHTML = critHtml;
       paintPractice();
       paintSpread();
