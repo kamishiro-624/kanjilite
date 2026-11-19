@@ -111,9 +111,21 @@
     } else card('0 days', 'review streak', 'Do a review to start one');
 
     if (d.ls && d.ls.since) {
-      card(span(d.ls.elapsedDays), `on level ${d.level}`, d.pace && d.pace.n ? `Your typical pace is ${round1(d.pace.mean)} days per level` : 'Time since you unlocked it');
+      // Against the saved plan first (how long it allows for this level), then against your own typical pace.
+      let sub = d.pace && d.pace.n ? `Your typical pace is ${round1(d.pace.mean)} days per level` : 'Time since you unlocked it';
+      if (d.planDays) {
+        const over = d.ls.elapsedDays - d.planDays;
+        sub = `Your plan allows about ${Math.round(d.planDays)} days${over >= 1 ? ` (${span(over)} over)` : over <= -1 ? ` (${span(-over)} to spare)` : ''}. ${sub}`;
+      }
+      card(span(d.ls.elapsedDays), `on level ${d.level}`, sub);
     }
     if (d.est && !d.est.already) card('~' + shortDate(d.est.date), `level ${d.level + 1} around`, `In about ${span(d.est.days)}${d.pace && d.pace.n ? ', at your recent pace' : ''}`);
+    // The earliest the level can be passed, from each needed kanji's own schedule rather than an average.
+    if (d.levelUp && d.levelUp.need && !d.levelUp.ready && d.levelUp.eta != null) {
+      card(shortDate(d.levelUp.eta), `level ${d.level + 1} earliest`, d.levelUp.exact
+        ? `When the ${d.levelUp.need}th kanji can reach Guru, if each is answered right when due`
+        : `Once the rest of its kanji are started and answered right when due`);
+    }
 
     card(String(d.reviewsToday || 0), 'reviews today', d.bestDay ? `Best day: ${d.bestDay}` : '');
     card(String(d.burned || 0), 'items burned', d.started ? `Of ${d.started} started` : '', '', true);

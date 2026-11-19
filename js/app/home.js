@@ -37,7 +37,7 @@
     const KEYS = mac ? { undo: '⌘Z', redo: '⇧⌘Z', reset: '⌥R' } : { undo: 'Ctrl+Z', redo: 'Ctrl+Shift+Z', reset: 'Alt+R' };
     Stats.bind(user.id);
     // What the widgets below the progress bars are built from. Filled from the saved copies first, refreshed in the background.
-    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelIds: null, loaded: false, lpLevel: null };
+    const X = { lp: null, hist: null, rs: null, rsSummary: null, subs: new Map(), progress: null, levelUp: null, backlog: null, levelIds: null, loaded: false, lpLevel: null };
 
     // The inside of one widget at a level of detail (1 brief, 2 standard, 3 detailed). The dashboard uses the saved level;
     // the preview in the gear menu asks for others. Widgets whose detail only hides notes are done in css (data-min).
@@ -591,10 +591,10 @@
         if (stale() || seq !== lpSeq) return;
         // Everything below the progress panel (plan, practice, estimates) is about the level you are on, whatever the panel shows.
         X.levelIds = new Set(subs.filter((x) => !x.data.hidden_at).map((x) => x.id));
-        const kanji = subs.filter((x) => x.object === 'kanji' && !x.data.hidden_at);
-        const need = Math.ceil(kanji.length * 0.9);
-        const done = kanji.filter((x) => { const a = Local.assignmentFor(x.id); return a && a.data.srs_stage >= 5; }).length;
-        X.progress = need ? { fraction: Math.min(1, done / need) } : null;
+        // Kanji on their way to Guru count in part (one at Apprentice IV is a review from Guru), and the earliest date
+        // the level can be passed is worked out from each kanji's real schedule (see Plan.levelStatus).
+        X.levelUp = Plan.levelStatus(subs, Local.assignmentFor, Date.now());
+        X.progress = X.levelUp.need ? { fraction: X.levelUp.fraction } : null;
         S.lastFrac = X.progress ? X.progress.fraction : null;
         let panelSubs = subs;
         if (shown !== cur) {
@@ -677,8 +677,10 @@
       const all = Local.allAssignments().filter((a) => !a.data.hidden && a.data.srs_stage >= 1);
       if (X.rs && !X.rsSummary) X.rsSummary = Stats.summarizeReviewStats(X.rs.rows);
       const ans = X.rsSummary ? X.rsSummary.answers : null;
+      const plan = Plan.load(user.id);
       numbersHtml = Dash.numbers({
         user: u, level: lvl, streak, haveHistory: !!(X.hist && X.hist.n), ls, pace, est,
+        planDays: plan ? Plan.daysFor(plan, lvl) : null, levelUp: X.levelUp,
         reviewsToday: streak.today, bestDay: X.hist && X.hist.n ? Math.max.apply(null, [0].concat(Object.keys(counts).map((k) => counts[k]))) : 0,
         burned: all.filter((a) => a.data.srs_stage === 9).length, started: all.length,
         accuracy: ans && ans.c + ans.i ? Math.round(ans.c / (ans.c + ans.i) * 1000) / 10 : null, answers: ans ? ans.c + ans.i : 0,
@@ -697,12 +699,21 @@
       }
 
       // Off-track warning against the saved plan (needs the level progress, so it waits for that).
-      const plan = Plan.load(user.id);
-      planHtml = plan && X.progress && !Plan.dismissedToday() ? PlanView.banner(plan, Plan.evaluate(plan, lvl + X.progress.fraction, now), guardOn ? guardRes : null) : '';
+      // The plan is judged by the clock and by a look forward (the earliest the level can be passed against the date the
+      // plan gives it); lessons waiting from earlier levels explain some lateness, and your own pace says whether the plan is realistic.
+      let planEv = null;
+      if (plan && X.progress) {
+        const planEst = X.lp ? Stats.estimate({ level: lvl, target: plan.target, pace, elapsedDays: ls.elapsedDays, progress: X.progress.fraction, now }) : null;
+        planEv = Plan.evaluate(plan, lvl + X.progress.fraction, now, {
+          eta: X.levelUp ? X.levelUp.eta : null, etaExact: X.levelUp ? X.levelUp.exact : true,
+          backlog: X.backlog ? X.backlog.queued : 0, current: X.backlog ? X.backlog.cur : 0, est: planEst,
+        });
+      }
+      planHtml = planEv && !Plan.dismissedToday() ? PlanView.banner(plan, planEv, guardOn ? guardRes : null) : '';
       const pb = $('#dash-plan'); if (pb) { pb.innerHTML = planHtml; bindPlan(); }
 
       // Today's lessons and reviews against the plan (all from the saved copy, no requests).
-      if (plan && X.progress && Plan.evaluate(plan, lvl + X.progress.fraction, now).state !== 'done') {
+      if (planEv && planEv.state !== 'done') {
         const dk = Stats.dayKey(new Date(now));
         const doneToday = counts[dk] || 0;
         const midnight = new Date(now); midnight.setHours(24, 0, 0, 0);
@@ -737,6 +748,8 @@
         if (stale()) return;
         X.lp = lp ? lp.rows : null; X.hist = hist; X.rs = rs; X.rsSummary = null; X.loaded = true;
         paintExtras();
+        // Lessons still waiting from earlier levels (only worked out when there is a plan they could explain lateness for).
+        if (Plan.load(user.id)) PlanView.backlog((S.userCache ? S.userCache.u : user).level).then((b) => { if (stale()) return; X.backlog = b; paintExtras(); }).catch(() => {});
         if (!lp || Date.now() - lp.at > 5 * 60000) {
           Stats.fetchProgressions({ background: true }).then((rows) => { X.lp = rows; paintExtras(); }).catch(() => {});
         }
