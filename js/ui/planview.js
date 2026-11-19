@@ -37,7 +37,7 @@
       msg = `<b>${esc(head)} has passed.</b> You’re at level ${Math.floor(ev.pos)}. Open the plan and use the pencil to set a new date.`;
     } else if (ev.state === 'catchup') {
       cls += ' info';
-      msg = `<b>You’re ${daysText(ev.behindDays)} behind your plan, and that fits the backlog you’re clearing.</b> ${plural(ev.backlog, 'lesson')} (radicals, kanji and vocabulary, from earlier levels or piled up on this one) ${ev.backlog === 1 ? 'is' : 'are'} still waiting (${plan.reserve > 0 ? `the plan set aside ${r1(plan.reserve)} days for them and they’re taking about ${daysText(ev.backlogDays).replace('about ', '')} more` : `about ${daysText(ev.backlogDays).replace('about ', '')} of lessons at the plan’s pace`}), so this is expected: a level or two at 1.3 to 2 times your normal time is part of clearing it, and there’s nothing to change yet. If you’re still behind once they’re done, that is your pace, and this will say so.`;
+      msg = `<b>You’re ${daysText(ev.behindDays)} behind your plan, which fits the backlog you’re clearing.</b> ${plural(ev.backlog, 'lesson')} (all types, from earlier levels or piled up on this one) ${ev.backlog === 1 ? 'is' : 'are'} waiting: ${plan.reserve > 0 ? `the plan set aside ${r1(plan.reserve)} days, and they’re taking about ${daysText(ev.backlogDays).replace('about ', '')} more` : `about ${daysText(ev.backlogDays).replace('about ', '')} of lessons at the plan’s pace`}. A level or two at 1.3 to 2× normal is expected. If you’re still behind once they’re done, that’s your pace, and this will say so.`;
     } else {
       const lateBy = ev.behindDays != null ? ev.behindDays : null;
       if (lateBy != null) msg = `<b>You’re ${daysText(lateBy)} behind your plan.</b> `;
@@ -45,8 +45,8 @@
       if (ev.reason === 'forecast' && ev.eta != null && ev.plannedNext != null) {
         msg += `Even if every review goes right, level ${ev.nextLevel} can’t come before ${esc(dateText(ev.eta))}${ev.etaExact ? '' : ' (once the rest of its kanji are started)'}; the plan has it on ${esc(dateText(ev.plannedNext))}. `;
       } else msg += `${esc(head)} has you at ${posText(ev.expected)} by now; you’re at ${posText(ev.pos)}. `;
-      if (ev.backlog > 0) msg += `Some of that is the ${plural(ev.backlog, 'lesson')} still waiting (from earlier levels or piled up on this one). `;
-      else if (ev.backlogCleared) msg += `Your backlog is cleared, so this is your pace, not the backlog. `;
+      if (ev.backlog > 0) msg += `Some of that is the ${plural(ev.backlog, 'lesson')} waiting (from earlier levels or piled up on this one). `;
+      else if (ev.backlogCleared) msg += `The backlog is cleared, so this is your pace. `;
       msg += ev.impossible
         ? `That date is now quicker than WaniKani allows (earliest: ${dateText(ev.earliest)}), so consider moving it.`
         : `To still make it, aim for about ${r1(ev.neededPerLevel)} days per level (the plan assumed ${r1(ev.plannedPerLevel)}).`;
@@ -197,11 +197,10 @@
       const parts = [];
       if (owedN > 0) {
         const rk = old.gate, vocab = old.queued - old.gate;
-        const where = [old.queued > 0 ? `${plural(old.queued, 'lesson')}${rk > 0 && vocab > 0 ? ` (${num(rk)} radical and kanji, ${num(vocab)} vocabulary)` : ''} from earlier levels` : '', extra > 0 ? `${plural(extra, 'lesson')} on this level beyond a day’s worth` : ''].filter(Boolean).join(' and ');
-        const one = owedN === 1;
-        parts.push(`You have ${where} waiting. Vocabulary counts as much as radicals and kanji, so all of them are in the plan. That is an up-front, one-time cost, not your pace: ${reserve > 0 ? `the plan sets aside about ${r1(reserve)} days at the start to clear ${one ? 'it' : 'them'} (at the lessons a day this plan asks for), so the days per level shown are for the levels after that. A level or two at 1.3 to 2 times your normal time is expected while you clear ${one ? 'it' : 'them'}` : 'it is too large a share of this plan’s time to set aside, so expect the first level to run long'}.`);
+        const where = [old.queued > 0 ? `${plural(old.queued, 'lesson')} from earlier levels${rk > 0 && vocab > 0 ? ` (${num(rk)} radical/kanji, ${num(vocab)} vocab)` : ''}` : '', extra > 0 ? `${plural(extra, 'lesson')} piled up on this level (over a day’s worth)` : ''].filter(Boolean).join(' and ');
+        parts.push(`Backlog: ${where}. All lesson types count. It’s a one-time cost, not your pace: ${reserve > 0 ? `about ${r1(reserve)} days are set aside at the start, so days per level are for the levels after. A level or two at 1.3 to 2× normal is expected.` : 'too large to set aside, so expect the first level to run long.'}`);
       }
-      if (locked > 0) parts.push(`${plural(locked, 'item')} from earlier levels ${locked === 1 ? 'is' : 'are'} not unlocked yet. ${locked === 1 ? 'It isn’t' : 'They aren’t'} counted as backlog, since you can’t do ${locked === 1 ? 'it' : 'them'} yet, but ${locked === 1 ? 'it is' : 'they are'} in the lessons a day and reviews the plan expects.`);
+      if (locked > 0) parts.push(`${plural(locked, 'earlier-level item')} ${locked === 1 ? 'isn’t' : 'aren’t'} unlocked yet: in the workload, not counted as backlog.`);
       return `<p class="sustain watch backlog-note">${esc(parts.join(' '))}</p>`;
     };
     // How long your own pace says it takes to reach `target` (null until your finished levels and progress are known).
@@ -221,8 +220,8 @@
 
     function draw() {
       if (dead) return;
-      $('#plan-sub').textContent = mode === 'view' ? 'Your saved plan. To change it, use the pencil: you’ll see the old and new plan side by side first.'
-        : mode === 'edit' ? 'Check the change below. Nothing is saved until you press Save changes.'
+      $('#plan-sub').textContent = mode === 'view' ? 'Locked. Use the pencil to change it; you’ll see old and new side by side first.'
+        : mode === 'edit' ? 'Review the change. Nothing saves until you press Save changes.'
         : 'Choose a level and a date. The dashboard tells you if you fall behind.';
       if (mode === 'view') drawView(); else drawEditor();
     }
@@ -244,9 +243,9 @@
       if (ev.state !== 'done' && ev.state !== 'late' && oc && oc.risk !== 'ok') {
         risky = oc.risk === 'unrealistic' ? ' risky' : ' tight';
         extra = oc.risk === 'unrealistic'
-          ? ` But at your usual pace you’d reach level ${saved.target} around ${dateText(oc.date)}, ${daysText(oc.lateDays)} after your date, so keeping to this plan means going about ${r1(oc.ratio)} times faster than you usually do.`
-          : ` Your usual pace would reach it around ${dateText(oc.date)}, a little after your date; only your quicker levels would make it.`;
-      } else if (ev.state !== 'done' && oc && oc.risk === 'ok') extra = ' Your usual pace would get there in time.';
+          ? ` At your usual pace you’d reach level ${saved.target} around ${dateText(oc.date)}, ${daysText(oc.lateDays)} after your date, so this plan needs about ${r1(oc.ratio)}× your usual speed.`
+          : ` Your usual pace arrives around ${dateText(oc.date)}, a little late; only your quicker levels make it.`;
+      } else if (ev.state !== 'done' && oc && oc.risk === 'ok') extra = ' Your usual pace gets there in time.';
       return `<p class="plan-saved ${ev.state}${risky}">${esc(head)} <b>${esc(line)}</b>${esc(extra)}</p>`;
     }
 
@@ -268,21 +267,23 @@
       // where you stand today, in plain rows
       const rows = [];
       if (ev && ev.state !== 'done') {
-        rows.push(['The plan has you at', posText(ev.expected)]);
+        rows.push(['Plan expects', posText(ev.expected)]);
         rows.push(['You’re at', posText(ev.pos)]);
         if (levelInfo && levelInfo.eta != null && ev.plannedNext != null) {
           const d = (levelInfo.eta - ev.plannedNext) / DAY;
-          const when = levelInfo.ready ? 'now: the kanji you need are at Guru' : dateText(levelInfo.eta);
-          rows.push([`Earliest level ${ev.nextLevel}`, `${when}${levelInfo.ready ? '' : levelInfo.exact ? '' : ' (once the rest of its kanji are started)'}; the plan has ${dateText(ev.plannedNext)}${d >= 1 ? `, so at least ${plural(Math.round(d), 'day')} late` : ''}`]);
-        } else if (levelInfo && levelInfo.eta == null && levelInfo.need) rows.push([`Earliest level ${level + 1}`, 'not known yet: some of the kanji you need are still locked']);
+          const when = levelInfo.ready ? 'now (the kanji you need are at Guru)' : dateText(levelInfo.eta);
+          rows.push([`Earliest level ${ev.nextLevel}`, `${when}${levelInfo.ready ? '' : levelInfo.exact ? '' : ' (once the rest of its kanji are started)'}; plan: ${dateText(ev.plannedNext)}${d >= 1 ? ` (at least ${plural(Math.round(d), 'day')} late)` : ''}`]);
+        } else if (levelInfo && levelInfo.eta == null && levelInfo.need) rows.push([`Earliest level ${level + 1}`, 'not known yet (some needed kanji are still locked)']);
         const allowed = Plan.daysFor(saved, level);
-        if (ls && ls.since && allowed) rows.push(['Time on this level', `${plural(Math.round(ls.elapsedDays), 'day')}; the plan allows about ${Math.round(allowed)}`]);
-        if (saved.reserve > 0) rows.push(['Set aside for the backlog', `about ${r1(saved.reserve)} days at the start of the plan, one time; the days per level below are for the levels after it`]);
+        if (ls && ls.since && allowed) rows.push(['Time on this level', `${plural(Math.round(ls.elapsedDays), 'day')} (plan allows about ${Math.round(allowed)})`]);
+        if (saved.reserve > 0) rows.push(['Backlog reserve', `about ${r1(saved.reserve)} days at the start, one time`]);
         {
           const extra = Math.max(0, old.cur - Math.ceil(saved.lpd || 0)), locked = Math.max(0, old.n - old.queued);
-          if (old.queued > 0) rows.push(['Lessons from earlier levels', `${num(old.queued)} waiting (${num(old.gate)} radical and kanji, ${num(old.queued - old.gate)} vocabulary), about ${r1(old.queued / (saved.lpd || 1))} days of lessons at the plan’s pace; all of them count towards the plan`]);
-          if (extra > 0) rows.push(['Lessons piling up on this level', `${num(old.cur)} waiting, ${num(extra)} more than a day’s worth; counted as owed so you aren’t shown ahead while they wait`]);
-          if (locked > 0) rows.push(['Not unlocked yet', `${num(locked)} items from earlier levels; in the plan’s workload, not counted as backlog until you can do them`]);
+          const bits = [];
+          if (old.queued > 0) bits.push(`${num(old.queued)} from earlier levels (${num(old.gate)} radical/kanji, ${num(old.queued - old.gate)} vocab; about ${r1(old.queued / (saved.lpd || 1))} days of lessons)`);
+          if (extra > 0) bits.push(`${num(extra)} on this level beyond a day’s worth (${num(old.cur)} waiting)`);
+          if (bits.length) rows.push(['Lessons owed', bits.join(' · ')]);
+          if (locked > 0) rows.push(['Not unlocked yet', `${num(locked)} earlier-level items; in the workload, not owed yet`]);
         }
       }
       const where = rows.length ? `<dl class="plan-where">${rows.map((r) => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl>` : (frac == null ? '<p class="fine">Working out where you are…</p>' : '');
@@ -307,7 +308,7 @@
           <div class="row between"><h2>Your plan</h2><button class="icon-btn" id="plan-edit" type="button" aria-label="Edit plan" title="Edit plan">${PENCIL}</button></div>
           ${ev ? statusHTML(ev) : `<p class="plan-saved"><b>Level ${saved.target} by ${esc(dateText(saved.end))}.</b></p>`}
           ${where}
-          <p class="fine">${esc(was)} The plan is locked: changes go through the pencil, which shows the old and new plan together before anything is saved.</p>
+          <p class="fine">${esc(was)}</p>
           ${revs ? `<details class="plan-history"><summary>History of changes</summary><ul>${revs}</ul></details>` : ''}
         </div>
         <div class="panel"><h2>What it asks of you</h2>
@@ -316,12 +317,12 @@
             <div class="card"><b>${saved.lpd ? num(saved.lpd) : '–'}</b><span>new lessons a day</span><small>${c ? `From today: ${num(c.lessonsPerDay)}` : 'As saved'}</small></div>
             <div class="card"><b>${saved.rpd ? '~' + num(saved.rpd) : '–'}</b><span>reviews a day</span><small>${saved.rpk ? `Busiest weeks: ${num(saved.rpk)}` : ''}</small></div>
           </div>
-          <p class="fine">The first figure of each card is what the plan was saved with. “From today” is what keeping the same date takes now, from where you are.</p>
+          <p class="fine">Big figure: as saved. From today: what keeping the same date takes now.</p>
           <div class="row" style="margin-top:10px"><button class="btn ghost" id="plan-clear" type="button">Remove plan</button></div>
         </div>
         <details class="panel" open><summary><h2 style="display:inline">Level by level</h2></summary>
           <div class="plan-table"><table><thead><tr><th>Reach level</th><th>Plan</th><th>Actual or forecast</th><th>Difference</th></tr></thead><tbody>${tableRows}</tbody></table></div>
-          <p class="fine">Plan dates are the ones saved; they don’t move as you go. Forecasts after the next level use your usual pace.</p>
+          <p class="fine">Plan dates are fixed once saved. Forecasts past the next level use your usual pace.</p>
         </details>`;
       $('#plan-edit').onclick = () => { mode = 'edit'; st.target = saved.target; st.end = saved.end; fill(Math.max(st.target, saved.target)); draw(); };
       $('#plan-clear').onclick = async () => {
@@ -356,9 +357,9 @@
       if (!oc) return { html: '', oc: null };
       const usual = `${r1(pace.mean)} days per level`;
       let cls, text;
-      if (oc.risk === 'ok') { cls = 'ok'; text = `Realistic: at your usual pace (${usual}) you’d get there in time.`; }
-      else if (oc.risk === 'tight') { cls = 'watch'; text = `Ambitious: only your quicker levels get you there by this date. At your usual pace (${usual}) you’d arrive around ${dateText(oc.date)}.`; }
-      else { cls = 'high'; text = `Very ambitious: this needs about ${r1(oc.ratio)} times your usual speed. At your usual pace (${usual}) you’d reach level ${st.target} around ${dateText(oc.date)}, ${daysText(oc.lateDays)} later. Plans like this tend to be missed. <button class="link" id="use-pace" type="button">Use ${esc(dateText(oc.date))}</button> for a date that matches how you actually go.`; }
+      if (oc.risk === 'ok') { cls = 'ok'; text = `Realistic: your usual pace (${usual}) gets there in time.`; }
+      else if (oc.risk === 'tight') { cls = 'watch'; text = `Ambitious: only your quicker levels make this date. At your usual pace (${usual}) you’d arrive around ${dateText(oc.date)}.`; }
+      else { cls = 'high'; text = `Very ambitious: needs about ${r1(oc.ratio)}× your usual speed. At your usual pace (${usual}) you’d reach level ${st.target} around ${dateText(oc.date)}, ${daysText(oc.lateDays)} later. Plans like this tend to be missed. <button class="link" id="use-pace" type="button">Use ${esc(dateText(oc.date))}</button> to match how you actually go.`; }
       return { html: `<p class="sustain ${cls}">${text}</p>`, oc };
     }
 
@@ -383,12 +384,12 @@
         const lvl = ratio <= 1.1 ? 'ok' : ratio <= 1.5 ? 'watch' : 'high';
         heavy = peak > cap.value * 1.15;
         const text = lvl === 'ok'
-          ? `Sustainable: the busiest weeks stay within your comfortable ${num(cap.value)} reviews a day.`
-          : `Heavy: the busiest weeks reach about ${num(peak)} reviews a day, ${lvl === 'high' ? 'well ' : ''}above your comfortable ${num(cap.value)}. Plans like this are where backlogs begin.${comfy ? ` <button class="link" id="use-comfy" type="button">Use ${esc(dateText(comfy))}</button> to keep it comfortable.` : ' Consider a lower target level.'}`;
+          ? `Sustainable: busiest weeks stay within your comfortable ${num(cap.value)} reviews a day.`
+          : `Heavy: busiest weeks reach about ${num(peak)} reviews a day, ${lvl === 'high' ? 'well ' : ''}above your comfortable ${num(cap.value)}. Backlogs start with plans like this.${comfy ? ` <button class="link" id="use-comfy" type="button">Use ${esc(dateText(comfy))}</button> to keep it comfortable.` : ' Consider a lower target level.'}`;
         sustain = `<p class="sustain ${lvl}">${text}</p>`;
       }
       const real = realismHTML(st.end);
-      const fine = `<p class="fine">Reviews assume ${Math.round(p.acc * 100)}% accuracy${acc == null ? ' until yours is known' : ''} and count only items you haven’t started; reviews already in your queue come on top.${exact(st.target) ? '' : ' Item counts are estimates until each level has downloaded.'}</p>`;
+      const fine = `<p class="fine">Assumes ${Math.round(p.acc * 100)}% accuracy${acc == null ? ' until yours is known' : ''}; counts only items you haven’t started (reviews already queued come on top).${exact(st.target) ? '' : ' Item counts are estimates until each level downloads.'}</p>`;
 
       let main;
       if (!edit) {
@@ -414,7 +415,7 @@
         const goalChg = st.target !== saved.target || dayKey(st.end) !== dayKey(saved.end);
         const cmp = `<table class="plan-cmp"><thead><tr><th></th><th>Current plan</th><th>Updated plan</th></tr></thead><tbody>
           <tr><th scope="row">Goal</th><td>Level ${saved.target} by ${esc(dateText(saved.end))}</td><td class="${goalChg ? 'chg' : ''}">Level ${st.target} by ${esc(dateText(st.end))}</td></tr>
-          ${cur && (cur.reserve > 0 || p.reserve > 0) ? `<tr><th scope="row">Set aside for backlog</th>${cell(cur.reserve, p.reserve, (v) => (v > 0 ? `about ${r1(v)} days` : 'none'))}</tr>` : ''}
+          ${cur && (cur.reserve > 0 || p.reserve > 0) ? `<tr><th scope="row">Backlog reserve</th>${cell(cur.reserve, p.reserve, (v) => (v > 0 ? `about ${r1(v)} days` : 'none'))}</tr>` : ''}
           ${cur ? `<tr><th scope="row">Days per level</th>${cell(cur.perLevel, p.perLevel, (v) => r1(v))}</tr>
           <tr><th scope="row">New lessons a day</th>${cell(cur.lessonsPerDay, p.lessonsPerDay, (v) => num(v))}</tr>
           <tr><th scope="row">Reviews a day</th>${cell(cur.reviewsAvg, p.reviewsAvg, (v) => '~' + num(v))}</tr>
@@ -422,17 +423,16 @@
           </tbody></table>`;
 
         const li = [];
-        if (!changed) li.push('No changes yet. Change the level or the date above to see what it does.');
+        if (!changed) li.push('No changes yet. Change the level or date above.');
         else {
           const dEnd = (st.end - saved.end) / DAY;
           if (st.target !== saved.target) li.push(`The goal moves from level ${saved.target} to level ${st.target}.`);
           if (dayKey(st.end) !== dayKey(saved.end)) li.push(`The date moves from ${dateText(saved.end)} to ${dateText(st.end)}, ${plural(Math.max(1, Math.round(Math.abs(dEnd))), 'day')} ${dEnd > 0 ? 'later' : 'earlier'}.`);
-          if (cur) li.push(`Days per level go from ${r1(cur.perLevel)} to ${r1(p.perLevel)}, new lessons a day from ${num(cur.lessonsPerDay)} to ${num(p.lessonsPerDay)}, and reviews a day from about ${num(cur.reviewsAvg)} to about ${num(p.reviewsAvg)}. Both columns are worked out from where you are today.`);
-          if (ev && (ev.state === 'behind' || ev.state === 'catchup')) li.push(`Right now you’re ${daysText(ev.behindDays)} behind the current plan. The updated plan starts from where you are today (${posText(pos())}), so that lateness stops counting against you, but it stays in the plan’s history.`);
-          else if (ev && ev.state === 'late') li.push(`The current plan’s date has passed. The updated plan starts from where you are today (${posText(pos())}).`);
-          else if (ev) li.push(`You’re ${ev.state === 'ahead' ? 'ahead of' : 'on schedule with'} the current plan. The updated plan starts from where you are today (${posText(pos())}).`);
+          if (ev && (ev.state === 'behind' || ev.state === 'catchup')) li.push(`You’re ${daysText(ev.behindDays)} behind now. The updated plan starts from today (${posText(pos())}), so that stops counting against you but stays in the plan’s history.`);
+          else if (ev && ev.state === 'late') li.push(`The current plan’s date has passed. The updated plan starts from today (${posText(pos())}).`);
+          else if (ev) li.push(`You’re ${ev.state === 'ahead' ? 'ahead of' : 'on schedule with'} the current plan. The updated plan starts from today (${posText(pos())}).`);
           const after = (st.end - orig.end) / DAY;
-          li.push(`This will be change ${dr.n + 1} to this plan. Against the first version (level ${orig.target} by ${dateText(orig.end)}) the date ${Math.abs(after) < 0.5 && st.target === orig.target ? 'would be the same.' : `would be ${st.target !== orig.target ? `level ${st.target} by ${dateText(st.end)}` : `${plural(Math.round(Math.abs(after)), 'day')} ${after > 0 ? 'later' : 'earlier'}`}.`}`);
+          li.push(`Change ${dr.n + 1}. Against the first version (level ${orig.target} by ${dateText(orig.end)}): ${Math.abs(after) < 0.5 && st.target === orig.target ? 'same date.' : `${st.target !== orig.target ? `level ${st.target} by ${dateText(st.end)}` : `${plural(Math.round(Math.abs(after)), 'day')} ${after > 0 ? 'later' : 'earlier'}`}.`}`);
         }
         const sched = Plan.scheduleOf(saved);
         const levels = new Map();
@@ -444,6 +444,7 @@
         }).join('');
         main = `<div class="panel"><h2>Current plan and updated plan</h2>
           <div class="plan-compare">${cmp}</div>
+          <p class="fine">Both columns are worked out from where you are today.</p>
           <ul class="plan-changes">${li.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
           ${backlogNotice(p.reserve, p.lessonsPerDay)}${sustain}${real.html}
           <div class="row" style="margin-top:10px"><button class="btn" id="plan-save" type="button"${canSave ? '' : ' disabled'}>Save changes</button><button class="btn ghost" id="plan-cancel2" type="button">Cancel</button></div>
@@ -451,7 +452,7 @@
         </div>
         <details class="panel"><summary><h2 style="display:inline">Level by level, before and after</h2></summary>
           <div class="plan-table"><table><thead><tr><th>Reach level</th><th>Current plan</th><th>Updated plan</th><th>Change</th></tr></thead><tbody>${lrows}</tbody></table></div>
-          <p class="fine">The current plan’s dates are the ones saved; the updated plan’s are worked out from today.</p>
+          <p class="fine">Current dates are as saved; updated dates are worked out from today.</p>
         </details>`;
       }
       out.innerHTML = `${verdict}${main}`;
