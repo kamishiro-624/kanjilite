@@ -37,7 +37,11 @@
       msg = `<b>${esc(head)} has passed.</b> You’re at level ${Math.floor(ev.pos)}. Open the plan and use the pencil to set a new date.`;
     } else if (ev.state === 'catchup') {
       cls += ' info';
-      msg = `<b>You’re ${daysText(ev.behindDays)} behind your plan, which fits the backlog you’re clearing.</b> ${plural(ev.backlog, 'lesson')} (all types, from earlier levels or piled up on this one) ${ev.backlog === 1 ? 'is' : 'are'} waiting: ${plan.reserve > 0 ? `the plan set aside ${r1(plan.reserve)} days, and they’re taking about ${daysText(ev.backlogDays).replace('about ', '')} more` : `about ${daysText(ev.backlogDays).replace('about ', '')} of lessons at the plan’s pace`}. A level or two at 1.3 to 2× normal is expected. If you’re still behind once they’re done, that’s your pace, and this will say so.`;
+      const OW = Plan.OWED_AFTER_DAYS, days = daysText(ev.backlogDays).replace('about ', '');
+      const what = `${plural(ev.backlog, 'lesson')} (all types) ${ev.backlog === 1 ? 'has' : 'have'} been waiting over ${OW} days: ${plan.reserve > 0 ? `the plan set aside ${r1(plan.reserve)} days, and ${ev.backlog === 1 ? 'it is' : 'they are'} taking about ${days} more` : `about ${days} of lessons at the plan’s pace`}.`;
+      msg = ev.levelGapDays >= 1
+        ? `<b>You’re ${daysText(ev.levelGapDays)} ahead on levels, but lessons are waiting.</b> ${what} Clearing ${ev.backlog === 1 ? 'it' : 'them'} keeps you on plan; skipping vocabulary to level faster doesn’t.`
+        : `<b>You’re ${daysText(ev.behindDays)} behind your plan, which fits the backlog you’re clearing.</b> ${what} A level or two at 1.3 to 2× normal is expected. If you’re still behind once they’re done, that’s your pace, and this will say so.`;
     } else {
       const lateBy = ev.behindDays != null ? ev.behindDays : null;
       if (lateBy != null) msg = `<b>You’re ${daysText(lateBy)} behind your plan.</b> `;
@@ -45,7 +49,7 @@
       if (ev.reason === 'forecast' && ev.eta != null && ev.plannedNext != null) {
         msg += `Even if every review goes right, level ${ev.nextLevel} can’t come before ${esc(dateText(ev.eta))}${ev.etaExact ? '' : ' (once the rest of its kanji are started)'}; the plan has it on ${esc(dateText(ev.plannedNext))}. `;
       } else msg += `${esc(head)} has you at ${posText(ev.expected)} by now; you’re at ${posText(ev.pos)}. `;
-      if (ev.backlog > 0) msg += `Some of that is the ${plural(ev.backlog, 'lesson')} waiting (from earlier levels or piled up on this one). `;
+      if (ev.backlog > 0) msg += `Some of that is the ${plural(ev.backlog, 'lesson')} that ${ev.backlog === 1 ? 'has' : 'have'} waited over ${Plan.OWED_AFTER_DAYS} days. `;
       else if (ev.backlogCleared) msg += `The backlog is cleared, so this is your pace. `;
       msg += ev.impossible
         ? `That date is now quicker than WaniKani allows (earliest: ${dateText(ev.earliest)}), so consider moving it.`
@@ -104,38 +108,39 @@
   let blCache = null;
   async function backlog(level) {
     if (blCache && blCache.level === level && Date.now() - blCache.at < 60000) return blCache.val;
-    let out = { n: 0, queued: 0, gate: 0, from: 0, cur: 0, curGate: 0 };
+    let out = { n: 0, queued: 0, gate: 0, from: 0, cur: 0, curGate: 0, waitPrev: 0, fresh: 0 };
     try {
       await Local.ready;
       const queue = Local.lessonsAvailable();
       if (queue.length) {
         const subs = await api.getSubjects(queue.map((a) => a.data.subject_id), { background: true });
-        const queued = {}, gated = {};
+        const cutoff = Date.now() - Plan.OWED_AFTER_DAYS * DAY;
+        const aged = (a) => { const t = Date.parse(a.data.unlocked_at); return t && t < cutoff; }; // waited past the grace period
+        const waiting = {}, queued = {}, gated = {};   // by earlier level: all waiting / owed / owed radicals and kanji
+        let prevWaiting = 0, fresh = 0;
         queue.forEach((a) => {
           const sj = subs.get(a.data.subject_id);
-          if (!sj || sj.data.level >= level || sj.data.hidden_at) return;
-          queued[sj.data.level] = (queued[sj.data.level] || 0) + 1;
-          if (sj.object === 'radical' || sj.object === 'kanji') gated[sj.data.level] = (gated[sj.data.level] || 0) + 1;
+          if (!sj || sj.data.hidden_at) return;
+          const hard = sj.object === 'radical' || sj.object === 'kanji', L = sj.data.level, old = aged(a);
+          if (L > level) return;
+          if (!old) fresh++;
+          if (L === level) { if (old) { out.cur++; if (hard) out.curGate++; } return; }
+          waiting[L] = (waiting[L] || 0) + 1; prevWaiting++;
+          if (old) { queued[L] = (queued[L] || 0) + 1; if (hard) gated[L] = (gated[L] || 0) + 1; }
         });
-        const lows = Object.keys(queued).map(Number).sort((a, b) => a - b);
+        const lows = Object.keys(waiting).map(Number).sort((a, b) => a - b);
+        let n = 0, q = 0, g = 0;
         if (lows.length) {
-          let n = 0, q = 0, g = 0;
           for (let L = lows[0]; L < level; L++) {
             q += queued[L] || 0; g += gated[L] || 0;
             if (Local.levelDone(L)) {
               const all = await Local.levelSubjects(L, { background: true });
-              n += all.filter((s) => { if (s.data.hidden_at) return false; const a = Local.assignmentFor(s.id); return !(a && a.data.started_at); }).length;
-            } else n += queued[L] || 0;
+              n += all.filter((s2) => { if (s2.data.hidden_at) return false; const a = Local.assignmentFor(s2.id); return !(a && a.data.started_at); }).length;
+            } else n += waiting[L] || 0;
           }
-          out = { n, queued: q, gate: g, from: lows[0], cur: 0, curGate: 0 };
         }
-        // Lessons waiting on the level you are on. Normal while they are a day's worth; owed once they pile up.
-        queue.forEach((a) => {
-          const sj = subs.get(a.data.subject_id);
-          if (!sj || sj.data.level !== level || sj.data.hidden_at) return;
-          out.cur++;
-          if (sj.object === 'radical' || sj.object === 'kanji') out.curGate++;
-        });
+        // queued/gate/cur/curGate: owed (waited past the grace period). waitPrev: all earlier-level lessons waiting. fresh: new, not owed.
+        out = { n, queued: q, gate: g, from: lows.length ? lows[0] : level, cur: out.cur, curGate: out.curGate, waitPrev: prevWaiting, fresh };
       }
     } catch (e) { /* the plan works without it */ }
     blCache = { level, at: Date.now(), val: out };
@@ -158,7 +163,7 @@
     let saved = Plan.load(uid);
     let mode = saved ? 'view' : 'new'; // view: the locked plan · edit: the pencil's editor · new: no plan yet
     const counts = {};       // level -> items still to learn there (exact, once that level has been downloaded)
-    let old = { n: 0, queued: 0, gate: 0, from: 0, cur: 0, curGate: 0 }; // lessons still waiting from levels below yours
+    let old = { n: 0, queued: 0, gate: 0, from: 0, cur: 0, curGate: 0, waitPrev: 0, fresh: 0 }; // lessons still waiting from levels below yours
     let frac = null;         // how far through the current level you are, once known
     let levelInfo = null;    // Plan.levelStatus of the current level (earliest level-up date and so on)
     let pace = null;         // your own pace, from your finished levels
@@ -183,23 +188,24 @@
       const T = target || st.target;
       const args = { pos: pos(), target: T, end, now: Date.now(), items, behind: old.n, curve: curve(), bySize: exact(T), acc: accUsed() };
       const first = Plan.make(args);
-      const owedCount = first.done ? 0 : Plan.owed(old.queued, old.cur, first.lessonsPerDay);
+      const owedCount = first.done ? 0 : Plan.owed(old.queued, old.cur);
       if (first.done || !(owedCount > 0)) return first;
       const reserve = Math.min(owedCount / Math.max(first.lessonsPerDay, 1), Math.max(0, (end - Date.now()) / DAY) / 2);
       return Plan.make(Object.assign(args, { reserve }));
     };
     /** The up-front notice about lessons waiting from earlier levels (empty when there are none). `reserve` is the days set aside. */
-    const backlogNotice = (reserve, lpd) => {
-      const extra = Math.max(0, old.cur - Math.ceil(lpd > 0 ? lpd : 0)); // this level's lessons beyond a day's worth
-      const owedN = old.queued + extra;
-      const locked = Math.max(0, old.n - old.queued); // earlier-level items not unlocked yet: not owed, but still ahead of you
+    const OWED = Plan.OWED_AFTER_DAYS;
+    const backlogNotice = (reserve) => {
+      const owedN = old.queued + old.cur;
+      const locked = Math.max(0, old.n - old.waitPrev); // earlier-level items not unlocked yet: not owed, but still ahead of you
       if (!(owedN > 0) && !(locked > 0)) return '';
       const parts = [];
       if (owedN > 0) {
-        const rk = old.gate, vocab = old.queued - old.gate;
-        const where = [old.queued > 0 ? `${plural(old.queued, 'lesson')} from earlier levels${rk > 0 && vocab > 0 ? ` (${num(rk)} radical/kanji, ${num(vocab)} vocab)` : ''}` : '', extra > 0 ? `${plural(extra, 'lesson')} piled up on this level (over a day’s worth)` : ''].filter(Boolean).join(' and ');
-        parts.push(`Backlog: ${where}. All lesson types count. It’s a one-time cost, not your pace: ${reserve > 0 ? `about ${r1(reserve)} days are set aside at the start, so days per level are for the levels after. A level or two at 1.3 to 2× normal is expected.` : 'too large to set aside, so expect the first level to run long.'}`);
+        const rk = old.gate + old.curGate, vocab = owedN - rk;
+        const where = [old.queued > 0 ? `${plural(old.queued, 'lesson')} from earlier levels` : '', old.cur > 0 ? `${plural(old.cur, 'lesson')} on this level` : ''].filter(Boolean).join(' and ');
+        parts.push(`Backlog: ${where} ${owedN === 1 ? 'has' : 'have'} been waiting over ${OWED} days${rk > 0 && vocab > 0 ? ` (${num(rk)} radical/kanji, ${num(vocab)} vocab)` : ''}. All lesson types count. It’s a one-time cost, not your pace: ${reserve > 0 ? `about ${r1(reserve)} days are set aside at the start, so days per level are for the levels after. A level or two at 1.3 to 2× normal is expected.` : 'too large to set aside, so expect the first level to run long.'}`);
       }
+      if (old.fresh > 0) parts.push(`${plural(old.fresh, 'lesson')} unlocked in the last ${OWED} days ${old.fresh === 1 ? 'is' : 'are'} new, not backlog.`);
       if (locked > 0) parts.push(`${plural(locked, 'earlier-level item')} ${locked === 1 ? 'isn’t' : 'aren’t'} unlocked yet: in the workload, not counted as backlog.`);
       return `<p class="sustain watch backlog-note">${esc(parts.join(' '))}</p>`;
     };
@@ -235,7 +241,7 @@
       if (ev.state === 'done') line = 'You’ve reached that level.';
       else if (ev.state === 'late') line = 'The date has passed. Use the pencil to set a new one.';
       else if (ev.state === 'behind') line = `You’re ${daysText(ev.behindDays)} behind.`;
-      else if (ev.state === 'catchup') line = `You’re ${daysText(ev.behindDays)} behind, which fits the ${plural(ev.backlog, 'lesson')} you’re still clearing.`;
+      else if (ev.state === 'catchup') line = ev.levelGapDays >= 1 ? `You’re ${daysText(ev.levelGapDays)} ahead on levels, but ${plural(ev.backlog, 'lesson')} ${ev.backlog === 1 ? 'has' : 'have'} waited over ${OWED} days.` : `You’re ${daysText(ev.behindDays)} behind, which fits the ${plural(ev.backlog, 'lesson')} that ${ev.backlog === 1 ? 'has' : 'have'} waited over ${OWED} days.`;
       else if (ev.state === 'ahead') line = `You’re ${daysText(ev.gapDays)} ahead.`;
       else line = 'You’re on schedule.';
       let extra = '', risky = '';
@@ -278,11 +284,12 @@
         if (ls && ls.since && allowed) rows.push(['Time on this level', `${plural(Math.round(ls.elapsedDays), 'day')} (plan allows about ${Math.round(allowed)})`]);
         if (saved.reserve > 0) rows.push(['Backlog reserve', `about ${r1(saved.reserve)} days at the start, one time`]);
         {
-          const extra = Math.max(0, old.cur - Math.ceil(saved.lpd || 0)), locked = Math.max(0, old.n - old.queued);
+          const locked = Math.max(0, old.n - old.waitPrev), owedN = old.queued + old.cur, rk = old.gate + old.curGate;
           const bits = [];
-          if (old.queued > 0) bits.push(`${num(old.queued)} from earlier levels (${num(old.gate)} radical/kanji, ${num(old.queued - old.gate)} vocab; about ${r1(old.queued / (saved.lpd || 1))} days of lessons)`);
-          if (extra > 0) bits.push(`${num(extra)} on this level beyond a day’s worth (${num(old.cur)} waiting)`);
-          if (bits.length) rows.push(['Lessons owed', bits.join(' · ')]);
+          if (old.queued > 0) bits.push(`${num(old.queued)} from earlier levels`);
+          if (old.cur > 0) bits.push(`${num(old.cur)} on this level`);
+          if (bits.length) rows.push([`Waiting over ${OWED} days`, `${bits.join(' · ')} (${num(rk)} radical/kanji, ${num(owedN - rk)} vocab; about ${r1(owedN / (saved.lpd || 1))} days of lessons)`]);
+          if (old.fresh > 0) rows.push(['New lessons', `${num(old.fresh)} unlocked in the last ${OWED} days; normal flow, not owed`]);
           if (locked > 0) rows.push(['Not unlocked yet', `${num(locked)} earlier-level items; in the workload, not owed yet`]);
         }
       }
@@ -399,7 +406,7 @@
             <div class="card"><b>${num(p.lessonsPerDay)}</b><span>new lessons a day</span><small>${num(p.itemsLeft)} items${p.behind ? `, ${num(p.behind)} from earlier levels` : ''}</small></div>
             <div class="card"><b>~${num(p.reviewsAvg)}</b><span>reviews a day</span><small>Busiest weeks: ${num(p.reviewsPeak)}</small></div>
           </div>
-          ${backlogNotice(p.reserve, p.lessonsPerDay)}${sustain}${real.html}
+          ${backlogNotice(p.reserve)}${sustain}${real.html}
           <div class="row" style="margin-top:10px"><button class="btn" id="plan-save" type="button"${canSave ? '' : ' disabled'}>Save as my plan</button></div>
           ${fine}
         </div>
@@ -446,7 +453,7 @@
           <div class="plan-compare">${cmp}</div>
           <p class="fine">Both columns are worked out from where you are today.</p>
           <ul class="plan-changes">${li.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-          ${backlogNotice(p.reserve, p.lessonsPerDay)}${sustain}${real.html}
+          ${backlogNotice(p.reserve)}${sustain}${real.html}
           <div class="row" style="margin-top:10px"><button class="btn" id="plan-save" type="button"${canSave ? '' : ' disabled'}>Save changes</button><button class="btn ghost" id="plan-cancel2" type="button">Cancel</button></div>
           ${fine}
         </div>

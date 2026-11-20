@@ -110,12 +110,14 @@
   }
 
   /**
-   * Lessons that are owed: every lesson waiting from earlier levels, plus the lessons waiting on your current level
-   * beyond one day's worth at `lpd` a day (a day's worth is just the normal queue; more than that means they are not
-   * being done at the plan's pace). Vocabulary counts the same as radicals and kanji.
+   * A lesson is owed once it has been available longer than this. A level-up (or kanji reaching Guru) unlocks a burst
+   * of new lessons at once, and those are the plan's normal work, not a backlog, so what counts is how long a lesson has
+   * actually waited, not how many are in the queue. Radicals, kanji and vocabulary all count the same.
    */
-  function owed(previous, current, lpd) {
-    return Math.max(0, previous || 0) + Math.max(0, (current || 0) - Math.ceil(lpd > 0 ? lpd : 0));
+  const OWED_AFTER_DAYS = 3;
+  /** Owed lessons: those from earlier levels plus those on your current level, each already past OWED_AFTER_DAYS. */
+  function owed(previous, current) {
+    return Math.max(0, previous || 0) + Math.max(0, current || 0);
   }
 
   /** Reviews a day that `lpd` new lessons a day create over a plan of `days` days at this accuracy (for the live figure). */
@@ -258,7 +260,7 @@
     const plannedNext = m ? m.date : null;
     const slipDays = ctx.eta != null && plannedNext != null ? (ctx.eta - plannedNext) / DAY : null;
     // Only backlog beyond what the plan already set aside explains lateness; the reserved days are in the schedule.
-    const owedNow = p.lpd ? owed(ctx.backlog, ctx.current, p.lpd) : 0; // earlier levels' lessons, plus this level's beyond a day's worth
+    const owedNow = p.lpd ? owed(ctx.backlog, ctx.current) : 0; // lessons (any kind, any level) that have waited past OWED_AFTER_DAYS
     const backlogDays = owedNow > 0 ? Math.max(0, owedNow / p.lpd - (p.reserve || 0)) : 0;
     // Levels are passed on kanji alone, but the plan counts every kind of lesson. Radicals, kanji and vocabulary left
     // waiting beyond the reserve are time still owed, so they take away from being ahead (you can't be ahead by
@@ -273,7 +275,7 @@
     else if (gapDays >= thr) state = 'ahead';
     else state = 'on';
     return {
-      state, expected, gap, gapDays, behindDays, thr, pos, target: p.target,
+      state, expected, gap, gapDays, levelGapDays: rawGap, behindDays, thr, pos, target: p.target,
       reason: slipDays != null && slipDays > -gapDays ? 'forecast' : 'position',
       eta: ctx.eta != null ? ctx.eta : null, etaExact: ctx.etaExact !== false, plannedNext, nextLevel, slipDays,
       backlog: owedNow, backlogDays, backlogCleared: !(owedNow > 0) && (p.reserve || 0) > 0,
@@ -333,5 +335,5 @@
     return { total, done, over: Math.max(0, done - total) };
   }
 
-  root.Plan = { owed, DEFAULT_ACC, DEFAULT_ITEMS, fastestDays, make, endForPeak, curveOf, shapeFields, reviewsPerDay, reviewsToday, levelFraction, levelStatus, daysFor, scheduleOf, outlook, evaluate, load, save, revise, drift, clear, dismissedToday, dismiss };
+  root.Plan = { owed, OWED_AFTER_DAYS, DEFAULT_ACC, DEFAULT_ITEMS, fastestDays, make, endForPeak, curveOf, shapeFields, reviewsPerDay, reviewsToday, levelFraction, levelStatus, daysFor, scheduleOf, outlook, evaluate, load, save, revise, drift, clear, dismissedToday, dismiss };
 })(window);
